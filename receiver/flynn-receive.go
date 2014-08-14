@@ -1,13 +1,16 @@
 package main
 
 import (
+	"archive/tar"
 	"bytes"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/flynn/flynn/controller/client"
 	ct "github.com/flynn/flynn/controller/types"
@@ -60,9 +63,11 @@ func main() {
 
 	fmt.Printf("-----> Building %s...\n", app)
 
+	envURL := shelfEnvVars(shelfHost, commit, prevRelease.Env)
+
 	var output bytes.Buffer
 	slugURL := fmt.Sprintf("http://%s/%s.tgz", blobstoreHost, random.UUID())
-	cmd := exec.Command(exec.DockerImage("flynn/slugbuilder", os.Getenv("SLUGBUILDER_IMAGE_ID")), slugURL)
+	cmd := exec.Command(exec.DockerImage("flynn/slugbuilder", os.Getenv("SLUGBUILDER_IMAGE_ID")), slugURL, envURL)
 	cmd.Stdout = io.MultiWriter(os.Stdout, &output)
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
@@ -117,4 +122,42 @@ func main() {
 	}
 
 	fmt.Println("=====> Application deployed")
+}
+
+func shelfEnvVars(shelfHost string, commit string, env map[string]string) string {
+	buf := &bytes.Buffer{}
+	tw := tar.NewWriter(buf)
+
+	for key, value := range env {
+		hdr := &tar.Header{
+			Name:    key,
+			Mode:    0400,
+			ModTime: time.Now(),
+			Size:    int64(len(value)),
+		}
+
+		if err := tw.WriteHeader(hdr); err != nil {
+			log.Fatalln(err)
+		}
+		if _, err := tw.Write([]byte(value)); err != nil {
+			log.Fatalln(err)
+		}
+	}
+
+	if err := tw.Close(); err != nil {
+		log.Fatalln(err)
+	}
+
+	envURL := fmt.Sprintf("http://%s/%s-env.tar", shelfHost, commit)
+
+	req, err := http.NewRequest("PUT", envURL, buf)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	if _, err := http.DefaultClient.Do(req); err != nil {
+		log.Fatalln(err)
+	}
+
+	return envURL
 }
