@@ -191,6 +191,7 @@ func (r *Runner) build(b *Build) (err error) {
 	defer r.releaseNet(bc.Network)
 
 	c := cluster.New(bc, out)
+	defer c.Shutdown()
 
 	rootFS, err := c.BuildFlynn(r.rootFS, b.Commit)
 	defer os.RemoveAll(rootFS)
@@ -201,7 +202,6 @@ func (r *Runner) build(b *Build) (err error) {
 	if err := c.Boot(args.Backend, rootFS, 1); err != nil {
 		return fmt.Errorf("could not boot cluster: %s", err)
 	}
-	defer c.Shutdown()
 
 	config, err := c.CLIConfig()
 	if err != nil {
@@ -246,6 +246,9 @@ func (r *Runner) httpEventHandler(w http.ResponseWriter, req *http.Request) {
 	name := strings.Join(header, " ")
 	var event Event
 	switch name {
+	case "ping":
+		io.WriteString(w, "pong\n")
+		return
 	case "push":
 		event = &PushEvent{}
 	case "pull_request":
