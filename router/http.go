@@ -161,6 +161,8 @@ func (h *httpSyncHandler) Set(data *router.Route) error {
 		TLSCert: route.TLSCert,
 		TLSKey:  route.TLSKey,
 		Sticky:  route.Sticky,
+		Paused:  route.Paused,
+		drain:   make([]func(), 0),
 	}
 
 	if r.TLSCert != "" && r.TLSKey != "" {
@@ -335,7 +337,11 @@ func (s *HTTPListener) handle(conn net.Conn, isTLS bool) {
 	}
 
 	req.RemoteAddr = conn.RemoteAddr().String()
-	r.service.handle(req, sc, isTLS, r.Sticky)
+	if r.Paused {
+		r.drain = append(r.drain, func() { r.service.handle(req, sc, isTLS, r.Sticky) })
+	} else {
+		r.service.handle(req, sc, isTLS, r.Sticky)
+	}
 }
 
 // A domain served by a listener, associated TLS certs,
@@ -346,9 +352,22 @@ type httpRoute struct {
 	TLSCert string
 	TLSKey  string
 	Sticky  bool
+	Paused  bool
 
 	keypair *tls.Certificate
 	service *httpService
+	drain   []func()
+}
+
+func (r *httpRoute) Pause() {
+	r.Paused = true
+}
+
+func (r *httpRoute) Unpause() {
+	r.Paused = false
+	for _, req := range r.drain {
+		go req()
+	}
 }
 
 // A service definition: name, and set of backends.
