@@ -338,7 +338,6 @@ func (d *Deploy) waitForJobEvents(releaseID string, expected jobEvents, log log1
 			case "down", "crashed":
 				handleEvent(event.JobID, event.Type, "down")
 			case "failed":
-				handleEvent(event.JobID, event.Type, "failed")
 				return fmt.Errorf("deployer: %s job failed to start", event.Type)
 			}
 			if expected.Equals(actual) {
