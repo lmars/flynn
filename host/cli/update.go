@@ -2,14 +2,19 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
+	"os"
+	"sync"
 
 	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/go-docopt"
 	tuf "github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/go-tuf/client"
 	"github.com/flynn/flynn/Godeps/_workspace/src/gopkg.in/inconshreveable/log15.v2"
 	"github.com/flynn/flynn/pinkerton/layer"
 	"github.com/flynn/flynn/pkg/cluster"
+	"github.com/flynn/flynn/pkg/exec"
 )
 
 func init() {
@@ -72,6 +77,8 @@ func runUpdate(args *docopt.Args) error {
 	}
 
 	log.Info("pulling images on all hosts")
+	images := make(map[string]string)
+	var imageMtx sync.Mutex
 	hostErrs := make(chan error)
 	for _, h := range hosts {
 		go func(hostID string) {
@@ -101,7 +108,15 @@ func runUpdate(args *docopt.Args) error {
 			}
 			defer stream.Close()
 			for info := range ch {
-				log.Info("pulled image layer", "name", info.Repo, "id", info.ID, "status", info.Status)
+				if info.Type == layer.TypeLayer {
+					log.Info("pulled image layer", "name", info.Repo, "id", info.ID, "status", info.Status)
+					continue
+				}
+				log.Info("finished pulling image", "name", info.Repo, "id", info.ID, "status", info.Status)
+				imageURI := fmt.Sprintf("%s?name=%s&id=%s", args.String["--repository"], info.Repo, info.ID)
+				imageMtx.Lock()
+				images[info.Repo] = imageURI
+				imageMtx.Unlock()
 			}
 			hostErrs <- stream.Err()
 		}(h.ID)
@@ -116,5 +131,24 @@ func runUpdate(args *docopt.Args) error {
 		}
 		log.Info("images pulled successfully", "host", h.ID)
 	}
-	return hostErr
+	if hostErr != nil {
+		return hostErr
+	}
+
+	updaterImage, ok := images["flynn/updater"]
+	if !ok {
+		e := "missing flynn/updater image"
+		log.Error(e)
+		return errors.New(e)
+	}
+	imageJSON, err := json.Marshal(images)
+	if err != nil {
+		log.Error("error encoding images", "err", err)
+		return err
+	}
+	cmd := exec.Command(exec.DockerImage(updaterImage))
+	cmd.Stdin = bytes.NewReader(imageJSON)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
