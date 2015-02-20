@@ -42,6 +42,7 @@ func (s *DeployerSuite) createDeployment(t *c.C, process, strategy, service stri
 	app, release := s.createRelease(t, process, strategy)
 
 	if service != "" {
+		debugf(t, "waiting for 2 %s services", service)
 		events := make(chan *discoverd.Event)
 		stream, err := s.discoverdClient(t).Service(service).Watch(events)
 		t.Assert(err, c.IsNil)
@@ -55,6 +56,7 @@ func (s *DeployerSuite) createDeployment(t *c.C, process, strategy, service stri
 					t.Fatalf("service discovery stream closed unexpectedly")
 				}
 				if event.Kind == discoverd.EventKindUp {
+					debugf(t, "got %s service up event", service)
 					count++
 				}
 				if count == 2 {
