@@ -13,7 +13,6 @@ import (
 	"github.com/flynn/flynn/discoverd/client"
 )
 
-var logger = log15.New("app", "updater")
 var slugbuilderURI, slugrunnerURI string
 
 func main() {
@@ -31,7 +30,7 @@ var flynnApps = []string{
 }
 
 func run() error {
-	log := logger.New("fn", "run")
+	log := log15.New()
 
 	var images map[string]string
 	if err := json.NewDecoder(os.Stdin).Decode(&images); err != nil {

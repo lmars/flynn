@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -290,10 +291,12 @@ var errMissingTLS = errors.New("router: route not found or TLS not configured")
 
 func (s *HTTPListener) listenAndServeTLS() error {
 	certForHandshake := func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		println("===>", time.Now().Format("2006-01-02T15:04:05.999"), fmt.Sprintf("certForHandshake: %s", hello.ServerName))
 		r := s.findRouteForHost(hello.ServerName)
 		if r == nil {
 			return nil, errMissingTLS
 		}
+		println("===>", time.Now().Format("2006-01-02T15:04:05.999"), fmt.Sprintf("certForHandshake: service %s", r.service.name))
 		return r.keypair, nil
 	}
 	tlsConfig := tlsconfig.SecureCiphers(&tls.Config{

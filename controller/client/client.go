@@ -61,6 +61,10 @@ func NewClientWithHTTP(uri, key string, httpClient *http.Client) (*Client, error
 
 // NewClientWithPin acts like NewClient, but specifies a TLS pin.
 func NewClientWithPin(uri, key string, pin []byte) (*Client, error) {
+	return NewClientWithPinConfig(uri, key, &pinned.Config{Pin: pin})
+}
+
+func NewClientWithPinConfig(uri, key string, d *pinned.Config) (*Client, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
@@ -69,7 +73,6 @@ func NewClientWithPin(uri, key string, pin []byte) (*Client, error) {
 		u.Host += ":443"
 	}
 	u.Scheme = "http"
-	d := &pinned.Config{Pin: pin}
 	httpClient := &http.Client{Transport: &http.Transport{Dial: d.Dial}}
 	c := newClient(key, u.String(), httpClient)
 	c.HijackDial = d.Dial

@@ -149,6 +149,7 @@ rm godeb
 export GOPATH="$(mktemp --directory)"
 trap "rm -rf ${GOPATH}" EXIT
 go get github.com/flynn/go-tuf/cmd/tuf
+go get github.com/flynn/go-tuf/cmd/tuf-client
 mv "${GOPATH}/bin/tuf" /usr/bin/tuf
 
 # allow the test runner to set TEST_RUNNER_AUTH_KEY
