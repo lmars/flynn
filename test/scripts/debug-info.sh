@@ -42,3 +42,13 @@ trace() {
     echo "+ ${cmd}"
     $cmd
 }
+
+strace_libvirt() {
+  while true; do
+    sudo status libvirt-bin | grep -q "start/running" && break
+    sleep 0.2
+  done
+  sudo strace -p "$(cat /var/run/libvirtd.pid)"
+}
+
+strace_libvirt
