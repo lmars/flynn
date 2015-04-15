@@ -348,6 +348,11 @@ func (l *LibvirtLXCBackend) ConfigureNetworking(strategy NetworkStrategy, job st
 	return &NetworkInfo{BridgeAddr: l.bridgeAddr.String(), Nameservers: dnsConf.Servers}, nil
 }
 
+var libvirtAttempts = attempt.Strategy{
+	Total: 10 * time.Second,
+	Delay: 200 * time.Millisecond,
+}
+
 func (l *LibvirtLXCBackend) Run(job *host.Job, runConfig *RunConfig) (err error) {
 	g := grohl.NewContext(grohl.Data{"backend": "libvirt-lxc", "fn": "run", "job.id": job.ID})
 	g.Log(grohl.Data{"at": "start", "job.artifact.uri": job.Artifact.URI, "job.cmd": job.Config.Cmd})
@@ -569,14 +574,20 @@ func (l *LibvirtLXCBackend) Run(job *host.Job, runConfig *RunConfig) (err error)
 	}
 
 	g.Log(grohl.Data{"at": "define_domain"})
-	vd, err := l.libvirt.DomainDefineXML(string(domain.XML()))
-	if err != nil {
+	var vd libvirt.VirDomain
+	if err := libvirtAttempts.Run(func() (err error) {
+		vd, err = l.libvirt.DomainDefineXML(string(domain.XML()))
+		return
+	}); err != nil {
 		g.Log(grohl.Data{"at": "define_domain", "status": "error", "err": err})
 		return err
 	}
 
 	g.Log(grohl.Data{"at": "create_domain"})
-	if err := vd.Create(); err != nil {
+	if err := libvirtAttempts.Run(func() (err error) {
+		err = vd.Create()
+		return
+	}); err != nil {
 		g.Log(grohl.Data{"at": "create_domain", "status": "error", "err": err})
 		return err
 	}
