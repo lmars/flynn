@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/flynn/flynn/Godeps/_workspace/src/gopkg.in/inconshreveable/log15.v2"
+	ct "github.com/flynn/flynn/controller/types"
 	"github.com/flynn/flynn/host/types"
 )
 
@@ -18,9 +19,66 @@ type Cluster interface {
 	ListHosts() ([]Host, error)
 }
 
+type Job struct {
+	ID        string
+	HostID    string
+	Type      string
+	Formation *Formation
+
+	restarts  int
+	timer     *time.Timer
+	timerMtx  sync.Mutex
+	startedAt time.Time
+}
+
+type jobTypeMap map[string]map[jobKey]*Job
+
+type jobKey struct {
+	hostID, jobID string
+}
+
+type formationKey struct {
+	appID, releaseID string
+}
+
+type Formations struct {
+	formations map[formationKey]*Formation
+	mtx        sync.RWMutex
+}
+
+func (fs *Formations) Get(appID, releaseID string) *Formation {
+	fs.mtx.RLock()
+	defer fs.mtx.RUnlock()
+	return fs.formations[formationKey{appID, releaseID}]
+}
+
+type Formation struct {
+	mtx       sync.Mutex
+	AppID     string
+	AppName   string
+	Release   *ct.Release
+	Artifact  *ct.Artifact
+	Processes map[string]int
+
+	jobs jobTypeMap
+	s    *Scheduler
+}
+
+func (f *Formation) Rectify() {
+	f.mtx.Lock()
+	defer f.mtx.Unlock()
+	f.rectify()
+}
+
+func (f *Formation) rectify() {
+	defer f.s.sendEvent(&Event{Type: EventTypeFormationChange})
+	// TODO fill in
+}
+
 type Scheduler struct {
-	cluster Cluster
-	log     log15.Logger
+	cluster    Cluster
+	log        log15.Logger
+	formations *Formations
 
 	jobs    map[string]*host.ActiveJob
 	jobsMtx sync.RWMutex
@@ -105,6 +163,13 @@ func (s *Scheduler) Sync() error {
 	return err
 }
 
+func (s *Scheduler) FormationChange(ef *ct.ExpandedFormation) error {
+	f := s.formations.Get(ef.App.ID, ef.Release.ID)
+	// Add/Remove processes and/or create formations
+	go f.Rectify()
+	return nil
+}
+
 func (s *Scheduler) Stop() error {
 	s.log.Info("stopping scheduler loop", "fn", "Stop")
 	s.stopOnce.Do(func() { close(s.stop) })
@@ -159,5 +224,6 @@ type Event struct {
 type EventType string
 
 const (
-	EventTypeClusterSync EventType = "cluster-sync"
+	EventTypeClusterSync     EventType = "cluster-sync"
+	EventTypeFormationChange EventType = "formation-change"
 )
