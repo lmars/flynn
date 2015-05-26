@@ -62,7 +62,7 @@ func waitForEventType(events chan *Event, etype EventType, callback func(e *Even
 	}
 }
 
-func (TestSuite) TestInitialClusterSync(c *C) {
+func (ts *TestSuite) TestInitialClusterSync(c *C) {
 	jobID := "job-1"
 	s := createTestScheduler(jobID)
 
@@ -84,7 +84,7 @@ func (TestSuite) TestInitialClusterSync(c *C) {
 	c.Assert(job.Job.ID, Equals, jobID)
 }
 
-func (TestSuite) TestFormationChange(c *C) {
+func (ts *TestSuite) TestFormationChange(c *C) {
 	jobID := "job-1"
 
 	s := createTestScheduler(jobID)
@@ -99,7 +99,15 @@ func (TestSuite) TestFormationChange(c *C) {
 	err := waitForEventType(events, EventTypeClusterSync, nil)
 	fatalIfError(c, err)
 
-	err = s.FormationChange(&ct.ExpandedFormation{})
+	err = s.FormationChange(&ct.ExpandedFormation{
+		App: &ct.App{
+			Name: "test-formation-change",
+			ID:   "test-formation-change",
+		},
+		Release: &ct.Release{
+			ID: "test-formation-change",
+		},
+	})
 	fatalIfError(c, err)
 
 	err = waitForEventType(events, EventTypeFormationChange, nil)

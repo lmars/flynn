@@ -46,10 +46,19 @@ type Formations struct {
 	mtx        sync.RWMutex
 }
 
+func newFormations() *Formations {
+	return &Formations{
+		formations: make(map[formationKey]*Formation),
+	}
+}
+
 func (fs *Formations) Get(appID, releaseID string) *Formation {
 	fs.mtx.RLock()
 	defer fs.mtx.RUnlock()
-	return fs.formations[formationKey{appID, releaseID}]
+	if form, ok := fs.formations[formationKey{appID, releaseID}]; ok {
+		return form
+	}
+	return nil
 }
 
 type Formation struct {
@@ -64,15 +73,18 @@ type Formation struct {
 	s    *Scheduler
 }
 
-func (f *Formation) Rectify() {
+func (f *Formation) Rectify() error {
 	f.mtx.Lock()
 	defer f.mtx.Unlock()
-	f.rectify()
+	return f.rectify()
 }
 
-func (f *Formation) rectify() {
-	defer f.s.sendEvent(&Event{Type: EventTypeFormationChange})
-	// TODO fill in
+func (f *Formation) rectify() (err error) {
+	defer func() {
+		f.s.sendEvent(&Event{Type: EventTypeFormationChange, err: err})
+	}()
+	// TODO actually rectify formation
+	return nil
 }
 
 type Scheduler struct {
@@ -88,16 +100,23 @@ type Scheduler struct {
 
 	stop     chan struct{}
 	stopOnce sync.Once
+
+	formationChange chan *ct.ExpandedFormation
 }
 
 func NewScheduler(cluster Cluster) *Scheduler {
 	return &Scheduler{
-		cluster:   cluster,
-		log:       log15.New("component", "scheduler"),
-		jobs:      make(map[string]*host.ActiveJob),
-		listeners: make(map[chan *Event]struct{}),
-		stop:      make(chan struct{}),
+		cluster:    cluster,
+		log:        log15.New("component", "scheduler"),
+		jobs:       make(map[string]*host.ActiveJob),
+		listeners:  make(map[chan *Event]struct{}),
+		stop:       make(chan struct{}),
+		formations: newFormations(),
 	}
+}
+
+func main() {
+	return
 }
 
 func (s *Scheduler) Run() error {
@@ -124,16 +143,23 @@ func (s *Scheduler) Run() error {
 		select {
 		case <-s.stop:
 			return nil
+		case fc := <-s.formationChange:
+			if err := s.FormationChange(fc); err != nil {
+				log.Error("error performing cluster sync", "err", err)
+				continue
+			}
 		case <-time.After(time.Second):
 		}
 	}
 	return nil
 }
 
-func (s *Scheduler) Sync() error {
+func (s *Scheduler) Sync() (err error) {
 	log := s.log.New("fn", "Sync")
 
-	defer s.sendEvent(&Event{Type: EventTypeClusterSync})
+	defer func() {
+		s.sendEvent(&Event{Type: EventTypeClusterSync, err: err})
+	}()
 
 	log.Info("getting host list")
 	hosts, err := s.cluster.ListHosts()
@@ -164,10 +190,12 @@ func (s *Scheduler) Sync() error {
 }
 
 func (s *Scheduler) FormationChange(ef *ct.ExpandedFormation) error {
-	f := s.formations.Get(ef.App.ID, ef.Release.ID)
-	// Add/Remove processes and/or create formations
-	go f.Rectify()
-	return nil
+	if f := s.formations.Get(ef.App.ID, ef.Release.ID); f != nil {
+		f.Rectify()
+		// Add/Remove processes and/or create formations
+		return nil
+	}
+	return fmt.Errorf("Formation does not exist")
 }
 
 func (s *Scheduler) Stop() error {
@@ -219,6 +247,7 @@ func (s *Scheduler) sendEvent(event *Event) {
 
 type Event struct {
 	Type EventType
+	err  error
 }
 
 type EventType string
