@@ -2,11 +2,13 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
 	"github.com/flynn/flynn/Godeps/_workspace/src/gopkg.in/inconshreveable/log15.v2"
 	ct "github.com/flynn/flynn/controller/types"
+	"github.com/flynn/flynn/controller/utils"
 	"github.com/flynn/flynn/host/types"
 )
 
@@ -61,6 +63,16 @@ func (fs *Formations) Get(appID, releaseID string) *Formation {
 	return nil
 }
 
+func (fs *Formations) Add(f *Formation) *Formation {
+	fs.mtx.Lock()
+	defer fs.mtx.Unlock()
+	if existing, ok := fs.formations[f.key()]; ok {
+		return existing
+	}
+	fs.formations[f.key()] = f
+	return f
+}
+
 type Formation struct {
 	mtx       sync.Mutex
 	AppID     string
@@ -73,6 +85,28 @@ type Formation struct {
 	s    *Scheduler
 }
 
+func NewFormation(s *Scheduler, ef *ct.ExpandedFormation) *Formation {
+	return &Formation{
+		AppID:     ef.App.ID,
+		AppName:   ef.App.Name,
+		Release:   ef.Release,
+		Artifact:  ef.Artifact,
+		Processes: ef.Processes,
+		jobs:      make(jobTypeMap),
+		s:         s,
+	}
+}
+
+func (f *Formation) key() formationKey {
+	return formationKey{f.AppID, f.Release.ID}
+}
+
+func (f *Formation) SetProcesses(p map[string]int) {
+	f.mtx.Lock()
+	f.Processes = p
+	f.mtx.Unlock()
+}
+
 func (f *Formation) Rectify() error {
 	f.mtx.Lock()
 	defer f.mtx.Unlock()
@@ -80,11 +114,134 @@ func (f *Formation) Rectify() error {
 }
 
 func (f *Formation) rectify() (err error) {
-	defer func() {
-		f.s.sendEvent(&Event{Type: EventTypeFormationChange, err: err})
-	}()
+	log := f.s.log.New("fn", "rectify")
+	log.Info("rectifying formation", "app.id", f.AppID, "release.id", f.Release.ID)
 	// TODO actually rectify formation
+
+	for t, expected := range f.Processes {
+		actual := len(f.jobs[t])
+		diff := expected - actual
+		if diff > 0 {
+			f.add(diff, t, "")
+		} else if diff < 0 {
+			f.remove(-diff, t, "")
+		}
+	}
+
+	// remove extraneous process types
+	for t, jobs := range f.jobs {
+		// ignore jobs that don't have a type
+		if t == "" {
+			continue
+		}
+
+		if _, exists := f.Processes[t]; !exists {
+			f.remove(len(jobs), t, "")
+		}
+	}
 	return nil
+}
+
+func (f *Formation) add(n int, name string, hostID string) {
+	log := f.s.log.New("fn", "add")
+	log.Info("adding jobs", "count", n, "job.name", name, "host.id", hostID)
+	for i := 0; i < n; i++ {
+		f.start(name, hostID)
+	}
+}
+
+func (f *Formation) remove(n int, name string, hostID string) {
+	log := f.s.log.New("fn", "remove")
+	log.Info("removing jobs", "count", n, "job.name", name, "host.id", hostID)
+	// TODO implement
+}
+
+func (f *Formation) start(typ string, hostID string) (job *Job, err error) {
+	log := f.s.log.New("fn", "remove")
+	defer func() {
+		if err != nil {
+			log.Error("error starting job", "error", err)
+		} else {
+			log.Info("started job", "host.id", job.HostID, "job.id", job.ID)
+		}
+	}()
+	hosts, err := f.s.cluster.ListHosts()
+	if err != nil {
+		return nil, err
+	}
+	if len(hosts) == 0 {
+		return nil, fmt.Errorf("scheduler: no online hosts")
+	}
+
+	var h Host
+	if hostID != "" {
+		for _, host := range hosts {
+			if hostID == host.ID() {
+				h = host
+				break
+			}
+		}
+	} else {
+		var minCount int = math.MaxInt32
+		for _, host := range hosts {
+			jobs, err := f.listJobs(host, typ)
+			if err != nil {
+				log.Error("error listing jobs", "type", typ)
+				continue
+			}
+			if len(jobs) < minCount {
+				minCount = len(jobs)
+				h = host
+			}
+		}
+	}
+
+	// TODO remove
+	return nil, nil
+	//config := f.jobConfig(typ, h.ID)
+
+	//// Provision a data volume on the host if needed.
+	//if f.Release.Processes[typ].Data {
+	//	if err := utils.ProvisionVolume(f.s.clusterClient, h.ID, config); err != nil {
+	//		return nil, err
+	//	}
+	//}
+
+	//job = f.jobs.Add(typ, h.ID, config.ID)
+	//job.Formation = f
+	//f.c.jobs.Add(job)
+
+	//_, err = f.c.AddJobs(map[string][]*host.Job{h.ID: {config}})
+	//if err != nil {
+	//	f.jobs.Remove(job)
+	//	f.c.jobs.Remove(config.ID, h.ID)
+	//	return nil, err
+	//}
+	//return job, nil
+}
+
+func (f *Formation) listJobs(h Host, jobType string) (map[string]host.ActiveJob, error) {
+	allJobs, err := h.ListJobs()
+	if jobType == "" {
+		return allJobs, nil
+	} else {
+		jobs := make(map[string]host.ActiveJob)
+		for jobID, activeJob := range allJobs {
+			job := activeJob.Job
+			if f.jobType(job) == jobType {
+				jobs[job.ID] = activeJob
+			}
+		}
+		return jobs, nil
+	}
+}
+
+func (f *Formation) jobType(job *host.Job) string {
+	if job.Metadata["flynn-controller.app"] != f.AppID ||
+		job.Metadata["flynn-controller.release"] != f.Release.ID {
+		return ""
+	}
+	return job.Metadata["flynn-controller.type"]
 }
 
 type Scheduler struct {
@@ -158,6 +315,7 @@ func (s *Scheduler) Sync() (err error) {
 	log := s.log.New("fn", "Sync")
 
 	defer func() {
+		log.Info("sending cluster-sync event")
 		s.sendEvent(&Event{Type: EventTypeClusterSync, err: err})
 	}()
 
@@ -174,28 +332,40 @@ func (s *Scheduler) Sync() (err error) {
 	for _, h := range hosts {
 		log = log.New("host_id", h.ID())
 		log.Info("getting jobs list")
-		var jobs map[string]host.ActiveJob
-		jobs, err = h.ListJobs()
+		jobs, err := h.ListJobs()
 		if err != nil {
 			log.Error("error getting jobs list", "err", err)
 			continue
 		}
-		log.Info(fmt.Sprintf("got %d jobs", len(jobs)))
+		log.Info("got jobs", "count", len(jobs))
 		for id, job := range jobs {
-			log.Info(fmt.Sprintf("adding job with ID %q", id))
+			log.Info("adding job", "job.id", id)
 			s.jobs[id] = &job
 		}
 	}
 	return err
 }
 
-func (s *Scheduler) FormationChange(ef *ct.ExpandedFormation) error {
-	if f := s.formations.Get(ef.App.ID, ef.Release.ID); f != nil {
-		f.Rectify()
-		// Add/Remove processes and/or create formations
-		return nil
+func (s *Scheduler) FormationChange(ef *ct.ExpandedFormation) (err error) {
+	log := s.log.New("fn", "FormationChange")
+
+	defer func() {
+		if err != nil {
+			log.Error("error in FormationChange", "err", err)
+		}
+		log.Info("sending formation-change event")
+		s.sendEvent(&Event{Type: EventTypeFormationChange, err: err})
+	}()
+
+	f := s.formations.Get(ef.App.ID, ef.Release.ID)
+	if f != nil {
+		f.SetProcesses(ef.Processes)
+	} else {
+		log.Info("creating new formation")
+		f = NewFormation(s, ef)
+		s.formations.Add(f)
 	}
-	return fmt.Errorf("Formation does not exist")
+	return f.Rectify()
 }
 
 func (s *Scheduler) Stop() error {

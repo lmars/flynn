@@ -46,18 +46,18 @@ func createTestScheduler(jobID string) *Scheduler {
 	return NewScheduler(cluster)
 }
 
-func waitForEventType(events chan *Event, etype EventType, callback func(e *Event) error) error {
+func waitForEventType(events chan *Event, etype EventType) error {
 	for {
 		select {
 		case event, ok := <-events:
 			if !ok {
-				fmt.Errorf("unexpected close of scheduler event stream")
+				return fmt.Errorf("unexpected close of scheduler event stream")
 			}
 			if event.Type == etype {
 				return nil
 			}
 		case <-time.After(time.Second):
-			fmt.Errorf("timed out waiting for cluster sync event")
+			return fmt.Errorf("timed out waiting for cluster sync event")
 		}
 	}
 }
@@ -73,7 +73,7 @@ func (ts *TestSuite) TestInitialClusterSync(c *C) {
 	defer s.Stop()
 
 	// wait for a cluster sync event
-	err := waitForEventType(events, EventTypeClusterSync, nil)
+	err := waitForEventType(events, EventTypeClusterSync)
 	if err != nil {
 		c.Fatal(err.Error())
 	}
@@ -96,7 +96,7 @@ func (ts *TestSuite) TestFormationChange(c *C) {
 	defer s.Stop()
 
 	// wait for a cluster sync event
-	err := waitForEventType(events, EventTypeClusterSync, nil)
+	err := waitForEventType(events, EventTypeClusterSync)
 	fatalIfError(c, err)
 
 	err = s.FormationChange(&ct.ExpandedFormation{
@@ -110,7 +110,7 @@ func (ts *TestSuite) TestFormationChange(c *C) {
 	})
 	fatalIfError(c, err)
 
-	err = waitForEventType(events, EventTypeFormationChange, nil)
+	err = waitForEventType(events, EventTypeFormationChange)
 	fatalIfError(c, err)
 }
 
