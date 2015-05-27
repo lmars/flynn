@@ -10,6 +10,7 @@ import (
 	ct "github.com/flynn/flynn/controller/types"
 	"github.com/flynn/flynn/controller/utils"
 	"github.com/flynn/flynn/host/types"
+	"github.com/flynn/flynn/pkg/cluster"
 )
 
 type Host interface {
@@ -19,6 +20,7 @@ type Host interface {
 
 type Cluster interface {
 	ListHosts() ([]Host, error)
+	DialHost(id string) (cluster.Host, error)
 }
 
 type Job struct {
@@ -116,7 +118,6 @@ func (f *Formation) Rectify() error {
 func (f *Formation) rectify() (err error) {
 	log := f.s.log.New("fn", "rectify")
 	log.Info("rectifying formation", "app.id", f.AppID, "release.id", f.Release.ID)
-	// TODO actually rectify formation
 
 	for t, expected := range f.Processes {
 		actual := len(f.jobs[t])
@@ -173,7 +174,7 @@ func (f *Formation) start(typ string, hostID string) (job *Job, err error) {
 		return nil, fmt.Errorf("scheduler: no online hosts")
 	}
 
-	var h Host
+	var z, h Host
 	if hostID != "" {
 		for _, host := range hosts {
 			if hostID == host.ID() {
@@ -195,29 +196,40 @@ func (f *Formation) start(typ string, hostID string) (job *Job, err error) {
 			}
 		}
 	}
+	if h == z {
+		return nil, fmt.Errorf("no host found")
+	}
 
 	// TODO remove
 	return nil, nil
-	//config := f.jobConfig(typ, h.ID)
+	config := f.jobConfig(typ, h.ID())
 
-	//// Provision a data volume on the host if needed.
-	//if f.Release.Processes[typ].Data {
-	//	if err := utils.ProvisionVolume(f.s.clusterClient, h.ID, config); err != nil {
-	//		return nil, err
-	//	}
-	//}
+	// Provision a data volume on the host if needed.
+	if f.Release.Processes[typ].Data {
+		if err := utils.ProvisionVolume(f.s.cluster, h.ID, config); err != nil {
+			return nil, err
+		}
+	}
 
-	//job = f.jobs.Add(typ, h.ID, config.ID)
-	//job.Formation = f
-	//f.c.jobs.Add(job)
+	job = f.jobs.Add(typ, h.ID, config.ID)
+	job.Formation = f
+	f.c.jobs.Add(job)
 
-	//_, err = f.c.AddJobs(map[string][]*host.Job{h.ID: {config}})
-	//if err != nil {
-	//	f.jobs.Remove(job)
-	//	f.c.jobs.Remove(config.ID, h.ID)
-	//	return nil, err
-	//}
-	//return job, nil
+	_, err = f.c.AddJobs(map[string][]*host.Job{h.ID: {config}})
+	if err != nil {
+		f.jobs.Remove(job)
+		f.c.jobs.Remove(config.ID, h.ID)
+		return nil, err
+	}
+	return job, nil
+}
+
+func (f *Formation) jobConfig(name string, hostID string) *host.Job {
+	return utils.JobConfig(&ct.ExpandedFormation{
+		App:      &ct.App{ID: f.AppID, Name: f.AppName},
+		Release:  f.Release,
+		Artifact: f.Artifact,
+	}, name, hostID)
 }
 
 func (f *Formation) listJobs(h Host, jobType string) (map[string]host.ActiveJob, error) {
