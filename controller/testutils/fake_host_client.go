@@ -31,6 +31,10 @@ func (c *FakeHostClient) Attach(req *host.AttachReq, wait bool) (cluster.AttachC
 	return f(req, wait)
 }
 
+func (c *FakeHostClient) ListJobs() ([]*host.Job, error) {
+	return c.Jobs, nil
+}
+
 func (c *FakeHostClient) AddJob(job *host.Job) error {
 	c.Jobs = append(c.Jobs, job)
 	return nil

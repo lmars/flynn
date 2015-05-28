@@ -4,6 +4,7 @@ import (
 	ct "github.com/flynn/flynn/controller/types"
 	"github.com/flynn/flynn/host/types"
 	"github.com/flynn/flynn/pkg/cluster"
+	"github.com/flynn/flynn/pkg/stream"
 )
 
 func JobConfig(f *ct.ExpandedFormation, name, hostID string) *host.Job {
@@ -70,4 +71,11 @@ type HostClient interface {
 	AddJob(*host.Job) error
 	Attach(*host.AttachReq, bool) (cluster.AttachClient, error)
 	StopJob(string) error
+	ListJobs() ([]*host.Job, error)
+}
+
+type ClusterClient interface {
+	Host(string) (HostClient, error)
+	Hosts() ([]HostClient, error)
+	StreamHosts(chan *cluster.Host) (stream.Stream, error)
 }

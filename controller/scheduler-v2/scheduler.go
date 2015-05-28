@@ -10,18 +10,7 @@ import (
 	ct "github.com/flynn/flynn/controller/types"
 	"github.com/flynn/flynn/controller/utils"
 	"github.com/flynn/flynn/host/types"
-	"github.com/flynn/flynn/pkg/cluster"
 )
-
-type Host interface {
-	ID() string
-	ListJobs() (map[string]host.ActiveJob, error)
-}
-
-type Cluster interface {
-	ListHosts() ([]Host, error)
-	DialHost(id string) (cluster.Host, error)
-}
 
 type Job struct {
 	ID        string
@@ -166,7 +155,7 @@ func (f *Formation) start(typ string, hostID string) (job *Job, err error) {
 			log.Info("started job", "host.id", job.HostID, "job.id", job.ID)
 		}
 	}()
-	hosts, err := f.s.cluster.ListHosts()
+	hosts, err := f.s.cluster.Hosts()
 	if err != nil {
 		return nil, err
 	}
@@ -174,30 +163,26 @@ func (f *Formation) start(typ string, hostID string) (job *Job, err error) {
 		return nil, fmt.Errorf("scheduler: no online hosts")
 	}
 
-	var z, h Host
-	if hostID != "" {
-		for _, host := range hosts {
-			if hostID == host.ID() {
-				h = host
-				break
-			}
-		}
-	} else {
+	if hostID == "" {
 		var minCount int = math.MaxInt32
 		for _, host := range hosts {
 			jobs, err := f.listJobs(host, typ)
 			if err != nil {
-				log.Error("error listing jobs", "type", typ)
+				log.Error("error listing jobs", "job.type", typ, "host.id", host.ID())
 				continue
 			}
 			if len(jobs) < minCount {
 				minCount = len(jobs)
-				h = host
+				hostID = host.ID()
 			}
 		}
 	}
-	if h == z {
+	if hostID == "" {
 		return nil, fmt.Errorf("no host found")
+	}
+	h, err := f.s.cluster.Host(hostID)
+	if err != nil {
+		return nil, err
 	}
 
 	// TODO remove
@@ -206,7 +191,7 @@ func (f *Formation) start(typ string, hostID string) (job *Job, err error) {
 
 	// Provision a data volume on the host if needed.
 	if f.Release.Processes[typ].Data {
-		if err := utils.ProvisionVolume(f.s.cluster, h.ID, config); err != nil {
+		if err := utils.ProvisionVolume(h, config); err != nil {
 			return nil, err
 		}
 	}
@@ -232,16 +217,18 @@ func (f *Formation) jobConfig(name string, hostID string) *host.Job {
 	}, name, hostID)
 }
 
-func (f *Formation) listJobs(h Host, jobType string) (map[string]host.ActiveJob, error) {
+func (f *Formation) listJobs(h utils.HostClient, jobType string) ([]*host.Job, error) {
 	allJobs, err := h.ListJobs()
+	if err != nil {
+		return nil, err
+	}
 	if jobType == "" {
 		return allJobs, nil
 	} else {
-		jobs := make(map[string]host.ActiveJob)
-		for jobID, activeJob := range allJobs {
-			job := activeJob.Job
+		jobs := make([]*host.Job, len(allJobs))
+		for jobID, job := range allJobs {
 			if f.jobType(job) == jobType {
-				jobs[job.ID] = activeJob
+				jobs = append(jobs, job)
 			}
 		}
 		return jobs, nil
@@ -257,11 +244,11 @@ func (f *Formation) jobType(job *host.Job) string {
 }
 
 type Scheduler struct {
-	cluster    Cluster
+	cluster    utils.ClusterClient
 	log        log15.Logger
 	formations *Formations
 
-	jobs    map[string]*host.ActiveJob
+	jobs    map[string]*host.Job
 	jobsMtx sync.RWMutex
 
 	listeners map[chan *Event]struct{}
@@ -273,11 +260,11 @@ type Scheduler struct {
 	formationChange chan *ct.ExpandedFormation
 }
 
-func NewScheduler(cluster Cluster) *Scheduler {
+func NewScheduler(cluster utils.ClusterClient) *Scheduler {
 	return &Scheduler{
 		cluster:    cluster,
 		log:        log15.New("component", "scheduler"),
-		jobs:       make(map[string]*host.ActiveJob),
+		jobs:       make(map[string]*host.Job),
 		listeners:  make(map[chan *Event]struct{}),
 		stop:       make(chan struct{}),
 		formations: newFormations(),
@@ -332,7 +319,7 @@ func (s *Scheduler) Sync() (err error) {
 	}()
 
 	log.Info("getting host list")
-	hosts, err := s.cluster.ListHosts()
+	hosts, err := s.cluster.Hosts()
 	if err != nil {
 		log.Error("error getting host list", "err", err)
 		return err
@@ -352,7 +339,7 @@ func (s *Scheduler) Sync() (err error) {
 		log.Info("got jobs", "count", len(jobs))
 		for id, job := range jobs {
 			log.Info("adding job", "job.id", id)
-			s.jobs[id] = &job
+			s.jobs[job.ID] = job
 		}
 	}
 	return err
@@ -386,7 +373,7 @@ func (s *Scheduler) Stop() error {
 	return nil
 }
 
-func (s *Scheduler) GetJob(id string) *host.ActiveJob {
+func (s *Scheduler) GetJob(id string) *host.Job {
 	s.jobsMtx.RLock()
 	defer s.jobsMtx.RUnlock()
 	return s.jobs[id]

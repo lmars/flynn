@@ -158,11 +158,6 @@ func (c clusterClientWrapper) Hosts() ([]utils.HostClient, error) {
 	return res, nil
 }
 
-type clusterClient interface {
-	Host(string) (utils.HostClient, error)
-	Hosts() ([]utils.HostClient, error)
-}
-
 func (c *controllerAPI) connectHost(ctx context.Context) (utils.HostClient, string, error) {
 	params, _ := ctxhelper.ParamsFromContext(ctx)
 	hostID, jobID, err := cluster.ParseJobID(params.ByName("jobs_id"))
