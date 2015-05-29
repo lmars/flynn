@@ -108,7 +108,7 @@ func main() {
 
 type handlerConfig struct {
 	db      *postgres.DB
-	cc      clusterClient
+	cc      utils.ClusterClient
 	lc      logaggc.Client
 	rc      routerc.Client
 	pgxpool *pgx.ConnPool

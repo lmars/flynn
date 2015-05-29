@@ -3,8 +3,8 @@ package utils
 import (
 	ct "github.com/flynn/flynn/controller/types"
 	"github.com/flynn/flynn/host/types"
+	"github.com/flynn/flynn/host/volume"
 	"github.com/flynn/flynn/pkg/cluster"
-	"github.com/flynn/flynn/pkg/stream"
 )
 
 func JobConfig(f *ct.ExpandedFormation, name, hostID string) *host.Job {
@@ -53,7 +53,7 @@ func JobConfig(f *ct.ExpandedFormation, name, hostID string) *host.Job {
 	return job
 }
 
-func ProvisionVolume(h *cluster.Host, job *host.Job) error {
+func ProvisionVolume(h VolumeCreator, job *host.Job) error {
 	vol, err := h.CreateVolume("default")
 	if err != nil {
 		return err
@@ -66,16 +66,31 @@ func ProvisionVolume(h *cluster.Host, job *host.Job) error {
 	return nil
 }
 
+type VolumeCreator interface {
+	CreateVolume(string) (*volume.Info, error)
+}
+
 type HostClient interface {
+	VolumeCreator
 	ID() string
 	AddJob(*host.Job) error
+	GetJob(id string) (*host.ActiveJob, error)
 	Attach(*host.AttachReq, bool) (cluster.AttachClient, error)
 	StopJob(string) error
-	ListJobs() ([]*host.Job, error)
+	ListJobs() (map[string]host.ActiveJob, error)
 }
 
 type ClusterClient interface {
 	Host(string) (HostClient, error)
 	Hosts() ([]HostClient, error)
-	StreamHosts(chan *cluster.Host) (stream.Stream, error)
+}
+
+type FormationRetriever interface {
+	GetRelease(releaseID string) (*ct.Release, error)
+	GetArtifact(artifactID string) (*ct.Artifact, error)
+	GetFormation(appID, releaseID string) (*ct.Formation, error)
+}
+
+type ControllerClient interface {
+	FormationRetriever
 }
