@@ -63,7 +63,6 @@ func (ts *TestSuite) TestInitialClusterSync(c *C) {
 	// wait for a cluster sync event
 	err := waitForEventType(events, EventTypeClusterSync)
 	fatalIfError(c, err)
-	s.log.Info("Cluster sync event received")
 
 	// check the scheduler has the job
 	job, err := s.GetJob(jobID)
@@ -87,7 +86,6 @@ func (ts *TestSuite) TestFormationChange(c *C) {
 	// wait for a cluster sync event
 	err := waitForEventType(events, EventTypeClusterSync)
 	fatalIfError(c, err)
-	s.log.Info("Cluster sync event received")
 
 	s.formationChange <- &ct.ExpandedFormation{
 		App: &ct.App{

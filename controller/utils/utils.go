@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"strings"
+
 	ct "github.com/flynn/flynn/controller/types"
 	"github.com/flynn/flynn/host/types"
 	"github.com/flynn/flynn/host/volume"
@@ -64,6 +66,17 @@ func ProvisionVolume(h VolumeCreator, job *host.Job) error {
 		Writeable: true,
 	}}
 	return nil
+}
+
+func JobMetaFromMetadata(metadata map[string]string) map[string]string {
+	jobMeta := make(map[string]string, len(metadata))
+	for k, v := range metadata {
+		if strings.HasPrefix(k, "flynn-controller.") {
+			continue
+		}
+		jobMeta[k] = v
+	}
+	return jobMeta
 }
 
 type VolumeCreator interface {

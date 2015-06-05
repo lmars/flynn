@@ -122,24 +122,22 @@ func (s *Scheduler) Sync() (err error) {
 				continue
 			}
 
-			_, err := s.getFormation(appID, appName, releaseID)
+			f, err := s.getFormation(appID, appName, releaseID)
 			if err != nil {
 				continue
 			}
 			// TODO finish creating job
-			//go c.PutJob(&ct.Job{
+			//go s.PutJob(&ct.Job{
 			//	ID:        h.ID() + "-" + job.ID,
 			//	AppID:     appID,
 			//	ReleaseID: releaseID,
 			//	Type:      jobType,
 			//	State:     "up",
-			//	Meta:      jobMetaFromMetadata(job.Metadata),
+			//	Meta:      utils.JobMetaFromMetadata(job.Metadata),
 			//})
-			//j := f.jobs.Add(jobType, h.ID(), job.ID)
-			//j.Formation = f
-			//c.jobs.Add(j)
-			//rectify[f] = struct{}{}
-
+			j := f.jobs.Add(jobType, h.ID(), job.ID)
+			j.Formation = f
+			s.jobs.Add(j)
 		}
 	}
 	return err
@@ -238,6 +236,12 @@ func (s *Scheduler) GetJob(id string) (*host.ActiveJob, error) {
 		return nil, err
 	}
 	return hostJob, nil
+}
+
+func (s *Scheduler) PutJob(job *ct.Job) error {
+	s.jobsMtx.Lock()
+	defer s.jobsMtx.Unlock()
+	return nil
 }
 
 func (s *Scheduler) Subscribe(events chan *Event) *Stream {
