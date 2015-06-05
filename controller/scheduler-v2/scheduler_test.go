@@ -19,11 +19,18 @@ var _ = Suite(&TestSuite{})
 
 func createTestScheduler(jobID string) *Scheduler {
 	h := NewFakeHostClient("host-1")
-	h.AddJob(&host.Job{ID: jobID})
+	h.AddJob(&host.Job{
+		ID: jobID,
+		Metadata: map[string]string{
+			"flynn-controller.app":     "testApp",
+			"flynn-controller.release": "testRelease",
+		},
+	})
 	cluster := NewFakeCluster()
 	cluster.SetHosts(map[string]*FakeHostClient{h.ID(): h})
+	cc := NewFakeControllerClient()
 
-	return NewScheduler(cluster)
+	return NewScheduler(cluster, cc)
 }
 
 func waitForEventType(events chan *Event, etype EventType) error {
@@ -45,6 +52,7 @@ func waitForEventType(events chan *Event, etype EventType) error {
 func (ts *TestSuite) TestInitialClusterSync(c *C) {
 	jobID := "job-1"
 	s := createTestScheduler(jobID)
+	s.log.Info("Testing cluster sync")
 
 	events := make(chan *Event)
 	stream := s.Subscribe(events)
@@ -54,12 +62,12 @@ func (ts *TestSuite) TestInitialClusterSync(c *C) {
 
 	// wait for a cluster sync event
 	err := waitForEventType(events, EventTypeClusterSync)
-	if err != nil {
-		c.Fatal(err.Error())
-	}
+	fatalIfError(c, err)
+	s.log.Info("Cluster sync event received")
 
 	// check the scheduler has the job
-	job := s.GetJob(jobID)
+	job, err := s.GetJob(jobID)
+	c.Assert(err, IsNil)
 	c.Assert(job, NotNil)
 	c.Assert(job.Job.ID, Equals, jobID)
 }
@@ -68,8 +76,9 @@ func (ts *TestSuite) TestFormationChange(c *C) {
 	jobID := "job-1"
 
 	s := createTestScheduler(jobID)
+	s.log.Info("Testing formation change")
 
-	events := make(chan *Event)
+	events := make(chan *Event, 1)
 	stream := s.Subscribe(events)
 	defer stream.Close()
 	go s.Run()
@@ -78,8 +87,9 @@ func (ts *TestSuite) TestFormationChange(c *C) {
 	// wait for a cluster sync event
 	err := waitForEventType(events, EventTypeClusterSync)
 	fatalIfError(c, err)
+	s.log.Info("Cluster sync event received")
 
-	err = s.FormationChange(&ct.ExpandedFormation{
+	s.formationChange <- &ct.ExpandedFormation{
 		App: &ct.App{
 			Name: "test-formation-change",
 			ID:   "test-formation-change",
@@ -87,11 +97,12 @@ func (ts *TestSuite) TestFormationChange(c *C) {
 		Release: &ct.Release{
 			ID: "test-formation-change",
 		},
-	})
-	fatalIfError(c, err)
+	}
 
 	err = waitForEventType(events, EventTypeFormationChange)
 	fatalIfError(c, err)
+
+	s.stop <- struct{}{}
 }
 
 func fatalIfError(c *C, err error) {

@@ -38,6 +38,7 @@ func NewScheduler(cluster utils.ClusterClient, cc utils.ControllerClient) *Sched
 		listeners:        make(map[chan *Event]struct{}),
 		stop:             make(chan struct{}),
 		formations:       newFormations(),
+		formationChange:  make(chan *ct.ExpandedFormation, 1),
 	}
 }
 
@@ -84,7 +85,6 @@ func (s *Scheduler) Sync() (err error) {
 	log := s.log.New("fn", "Sync")
 
 	defer func() {
-		log.Info("sending cluster-sync event")
 		s.sendEvent(&Event{Type: EventTypeClusterSync, err: err})
 	}()
 
@@ -154,8 +154,9 @@ func (s *Scheduler) getFormation(appID, appName, releaseID string) (*Formation, 
 	f := s.formations.Get(appID, releaseID)
 	if f == nil {
 		release := releases[releaseID]
+		var err error
 		if release == nil {
-			release, err := s.GetRelease(releaseID)
+			release, err = s.GetRelease(releaseID)
 			if err != nil {
 				log.Error("at", "getRelease", "status", "error", "err", err)
 				return nil, err
@@ -201,7 +202,6 @@ func (s *Scheduler) FormationChange(ef *ct.ExpandedFormation) (err error) {
 		if err != nil {
 			log.Error("error in FormationChange", "err", err)
 		}
-		log.Info("sending formation-change event")
 		s.sendEvent(&Event{Type: EventTypeFormationChange, err: err})
 	}()
 
@@ -226,6 +226,9 @@ func (s *Scheduler) GetJob(id string) (*host.ActiveJob, error) {
 	s.jobsMtx.RLock()
 	defer s.jobsMtx.RUnlock()
 	job := s.jobs.Get(id)
+	if job == nil {
+		return nil, fmt.Errorf("No job found with ID %q", id)
+	}
 	host, err := s.Host(job.HostID)
 	if err != nil {
 		return nil, err
@@ -265,7 +268,7 @@ func (s *Stream) Close() error {
 func (s *Scheduler) sendEvent(event *Event) {
 	s.listenMtx.RLock()
 	defer s.listenMtx.RUnlock()
-	s.log.Info(fmt.Sprintf("sending %q event to %d listeners", event.Type, len(s.listeners)))
+	s.log.Info("sending event to listeners", "event.type", event.Type, "listeners.count", len(s.listeners))
 	for ch := range s.listeners {
 		// TODO: handle slow listeners
 		ch <- event

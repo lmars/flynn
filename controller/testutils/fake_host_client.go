@@ -15,6 +15,7 @@ func NewFakeHostClient(hostID string) *FakeHostClient {
 		stopped: make(map[string]bool),
 		attach:  make(map[string]attachFunc),
 		volumes: make(map[string]*volume.Info),
+		Jobs:    make(map[string]host.ActiveJob),
 	}
 }
 
