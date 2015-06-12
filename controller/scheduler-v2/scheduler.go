@@ -27,6 +27,7 @@ type Scheduler struct {
 	stopOnce sync.Once
 
 	formationChange chan *ct.ExpandedFormation
+	jobRequests     chan *JobRequest
 }
 
 func NewScheduler(cluster utils.ClusterClient, cc utils.ControllerClient) *Scheduler {
@@ -135,8 +136,7 @@ func (s *Scheduler) Sync() (err error) {
 			//	State:     "up",
 			//	Meta:      utils.JobMetaFromMetadata(job.Metadata),
 			//})
-			j := f.jobs.Add(jobType, h.ID(), job.ID)
-			j.Formation = f
+			j := f.jobs.Add(jobType, appID, releaseID, h.ID(), job.ID)
 			s.jobs.Add(j)
 		}
 	}
@@ -227,7 +227,7 @@ func (s *Scheduler) GetJob(id string) (*host.ActiveJob, error) {
 	if job == nil {
 		return nil, fmt.Errorf("No job found with ID %q", id)
 	}
-	host, err := s.Host(job.HostID)
+	host, err := s.Host(job.HostID())
 	if err != nil {
 		return nil, err
 	}

@@ -112,32 +112,7 @@ func (f *Formation) start(typ string, hostID string) (job *Job, err error) {
 			log.Info("started job", "host.id", job.HostID, "job.id", job.ID)
 		}
 	}()
-	hosts, err := f.s.Hosts()
-	if err != nil {
-		return nil, err
-	}
-	if len(hosts) == 0 {
-		return nil, fmt.Errorf("scheduler: no online hosts")
-	}
-
-	if hostID == "" {
-		var minCount int = math.MaxInt32
-		for _, host := range hosts {
-			jobs, err := f.listJobs(host, typ)
-			if err != nil {
-				log.Error("error listing jobs", "job.type", typ, "host.id", host.ID())
-				continue
-			}
-			if len(jobs) < minCount {
-				minCount = len(jobs)
-				hostID = host.ID()
-			}
-		}
-	}
-	if hostID == "" {
-		return nil, fmt.Errorf("no host found")
-	}
-	h, err := f.s.Host(hostID)
+	h, err := f.findHost(typ, hostID)
 	if err != nil {
 		return nil, err
 	}
@@ -151,13 +126,12 @@ func (f *Formation) start(typ string, hostID string) (job *Job, err error) {
 		}
 	}
 
-	job = f.jobs.Add(typ, h.ID(), hostJob.ID)
-	job.Formation = f
+	job = f.jobs.Add(typ, f.App.ID, f.Release.ID, h.ID(), hostJob.ID)
 	f.s.jobs.Add(job)
 
 	if err := h.AddJob(hostJob); err != nil {
 		f.jobs.Remove(job)
-		f.s.jobs.Remove(job.ID)
+		f.s.jobs.Remove(job.ID())
 		return nil, err
 	}
 	return job, nil
@@ -187,6 +161,40 @@ func (f *Formation) listJobs(h utils.HostClient, jobType string) (map[string]hos
 		}
 		return jobs, nil
 	}
+}
+
+func (f *Formation) findHost(typ, hostID string) (utils.HostClient, error) {
+	log := f.s.log.New("fn", "findHost")
+	hosts, err := f.s.Hosts()
+	if err != nil {
+		return nil, err
+	}
+	if len(hosts) == 0 {
+		return nil, fmt.Errorf("scheduler: no online hosts")
+	}
+
+	var minCount int = math.MaxInt32
+	if hostID == "" {
+		for _, host := range hosts {
+			jobs, err := f.listJobs(host, typ)
+			if err != nil {
+				log.Error("error listing jobs", "job.type", typ, "host.id", host.ID())
+				continue
+			}
+			if len(jobs) < minCount {
+				minCount = len(jobs)
+				hostID = host.ID()
+			}
+		}
+	}
+	if hostID == "" {
+		return nil, fmt.Errorf("no host found")
+	}
+	h, err := f.s.Host(hostID)
+	if err != nil {
+		return nil, err
+	}
+	return h, nil
 }
 
 func (f *Formation) jobType(job *host.Job) string {

@@ -9,11 +9,31 @@ type jobKey struct {
 	hostID, jobID string
 }
 
+type IJobSpec interface {
+	Type() string
+	AppID() string
+	ReleaseID() string
+}
+
+type IJobRequest interface {
+	IJobSpec
+	HostID() string
+}
+
+type JobSpec struct {
+	typ       string
+	appID     string
+	releaseID string
+}
+
+type JobRequest struct {
+	IJobSpec
+	hostID string
+}
+
 type Job struct {
-	ID        string
-	HostID    string
-	Type      string
-	Formation *Formation
+	IJobRequest
+	id string
 
 	restarts  int
 	timer     *time.Timer
@@ -21,26 +41,64 @@ type Job struct {
 	startedAt time.Time
 }
 
-func newJob(id, hostID, typ string) *Job {
-	return &Job{ID: id, HostID: hostID, Type: typ}
+func (j *JobSpec) Type() string {
+	return j.typ
+}
+
+func (j *JobSpec) AppID() string {
+	return j.appID
+}
+
+func (j *JobSpec) ReleaseID() string {
+	return j.releaseID
+}
+
+func (j *JobRequest) HostID() string {
+	return j.hostID
+}
+
+func (j *Job) ID() string {
+	return j.id
+}
+
+func NewJobSpec(typ, appID, releaseID string) *JobSpec {
+	return &JobSpec{
+		typ:       typ,
+		appID:     appID,
+		releaseID: releaseID,
+	}
+}
+
+func NewJobRequest(typ, appID, releaseID, hostID string) *JobRequest {
+	return &JobRequest{
+		IJobSpec: NewJobSpec(typ, appID, releaseID),
+		hostID:   hostID,
+	}
+}
+
+func NewJob(typ, appID, releaseID, hostID, id string) *Job {
+	return &Job{
+		IJobRequest: NewJobRequest(typ, appID, releaseID, hostID),
+		id:          id,
+	}
 }
 
 type jobTypeMap map[string]map[jobKey]*Job
 
-func (m jobTypeMap) Add(typ, host, id string) *Job {
+func (m jobTypeMap) Add(typ, appID, releaseID, hostID, id string) *Job {
 	jobs, ok := m[typ]
 	if !ok {
 		jobs = make(map[jobKey]*Job)
 		m[typ] = jobs
 	}
-	job := &Job{ID: id, HostID: host, Type: typ}
-	jobs[jobKey{host, id}] = job
+	job := NewJob(typ, appID, releaseID, hostID, id)
+	jobs[jobKey{hostID, id}] = job
 	return job
 }
 
 func (m jobTypeMap) Remove(job *Job) {
-	if jobs, ok := m[job.Type]; ok {
-		j := jobs[jobKey{job.HostID, job.ID}]
+	if jobs, ok := m[job.Type()]; ok {
+		j := jobs[jobKey{job.HostID(), job.ID()}]
 		// cancel job restarts
 		j.timerMtx.Lock()
 		if j.timer != nil {
@@ -48,7 +106,7 @@ func (m jobTypeMap) Remove(job *Job) {
 			j.timer = nil
 		}
 		j.timerMtx.Unlock()
-		delete(jobs, jobKey{job.HostID, job.ID})
+		delete(jobs, jobKey{job.HostID(), job.ID()})
 	}
 }
 
@@ -67,7 +125,7 @@ type jobMap struct {
 
 func (m *jobMap) Add(job *Job) {
 	m.mtx.Lock()
-	m.jobs[job.ID] = job
+	m.jobs[job.ID()] = job
 	m.mtx.Unlock()
 }
 
