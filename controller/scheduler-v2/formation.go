@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"math"
-	"sync"
 
 	ct "github.com/flynn/flynn/controller/types"
 	"github.com/flynn/flynn/controller/utils"
@@ -16,7 +15,6 @@ type formationKey struct {
 
 type Formations struct {
 	formations map[formationKey]*Formation
-	mtx        sync.RWMutex
 }
 
 func newFormations() *Formations {
@@ -26,8 +24,6 @@ func newFormations() *Formations {
 }
 
 func (fs *Formations) Get(appID, releaseID string) *Formation {
-	fs.mtx.RLock()
-	defer fs.mtx.RUnlock()
 	if form, ok := fs.formations[formationKey{appID, releaseID}]; ok {
 		return form
 	}
@@ -35,8 +31,6 @@ func (fs *Formations) Get(appID, releaseID string) *Formation {
 }
 
 func (fs *Formations) Add(f *Formation) *Formation {
-	fs.mtx.Lock()
-	defer fs.mtx.Unlock()
 	if existing, ok := fs.formations[f.key()]; ok {
 		return existing
 	}
@@ -45,12 +39,7 @@ func (fs *Formations) Add(f *Formation) *Formation {
 }
 
 type Formation struct {
-	mtx       sync.Mutex
-	AppID     string
-	AppName   string
-	Release   *ct.Release
-	Artifact  *ct.Artifact
-	Processes map[string]int
+	*ct.ExpandedFormation
 
 	jobs jobTypeMap
 	s    *Scheduler
@@ -58,35 +47,23 @@ type Formation struct {
 
 func NewFormation(s *Scheduler, ef *ct.ExpandedFormation) *Formation {
 	return &Formation{
-		AppID:     ef.App.ID,
-		AppName:   ef.App.Name,
-		Release:   ef.Release,
-		Artifact:  ef.Artifact,
-		Processes: ef.Processes,
-		jobs:      make(jobTypeMap),
-		s:         s,
+		ExpandedFormation: ef,
+		jobs:              make(jobTypeMap),
+		s:                 s,
 	}
 }
 
 func (f *Formation) key() formationKey {
-	return formationKey{f.AppID, f.Release.ID}
+	return formationKey{f.App.ID, f.Release.ID}
 }
 
-func (f *Formation) SetProcesses(p map[string]int) {
-	f.mtx.Lock()
-	f.Processes = p
-	f.mtx.Unlock()
+func (f *Formation) SetFormation(ef *ct.ExpandedFormation) {
+	f.ExpandedFormation = ef
 }
 
 func (f *Formation) Rectify() error {
-	f.mtx.Lock()
-	defer f.mtx.Unlock()
-	return f.rectify()
-}
-
-func (f *Formation) rectify() (err error) {
 	log := f.s.log.New("fn", "rectify")
-	log.Info("rectifying formation", "app.id", f.AppID, "release.id", f.Release.ID)
+	log.Info("rectifying formation", "app.id", f.App.ID, "release.id", f.Release.ID)
 
 	for t, expected := range f.Processes {
 		actual := len(f.jobs[t])
@@ -188,7 +165,7 @@ func (f *Formation) start(typ string, hostID string) (job *Job, err error) {
 
 func (f *Formation) jobConfig(name string, hostID string) *host.Job {
 	return utils.JobConfig(&ct.ExpandedFormation{
-		App:      &ct.App{ID: f.AppID, Name: f.AppName},
+		App:      &ct.App{ID: f.App.ID, Name: f.App.Name},
 		Release:  f.Release,
 		Artifact: f.Artifact,
 	}, name, hostID)
@@ -213,7 +190,7 @@ func (f *Formation) listJobs(h utils.HostClient, jobType string) (map[string]hos
 }
 
 func (f *Formation) jobType(job *host.Job) string {
-	if job.Metadata["flynn-controller.app"] != f.AppID ||
+	if job.Metadata["flynn-controller.app"] != f.App.ID ||
 		job.Metadata["flynn-controller.release"] != f.Release.ID {
 		return ""
 	}

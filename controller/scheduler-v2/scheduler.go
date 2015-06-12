@@ -205,7 +205,7 @@ func (s *Scheduler) FormationChange(ef *ct.ExpandedFormation) (err error) {
 
 	f := s.formations.Get(ef.App.ID, ef.Release.ID)
 	if f != nil {
-		f.SetProcesses(ef.Processes)
+		f.SetFormation(ef)
 	} else {
 		log.Info("creating new formation")
 		f = NewFormation(s, ef)
