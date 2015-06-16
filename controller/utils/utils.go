@@ -79,6 +79,14 @@ func JobMetaFromMetadata(metadata map[string]string) map[string]string {
 	return jobMeta
 }
 
+type FormationKey struct {
+	AppID, ReleaseID string
+}
+
+func NewFormationKey(appID, releaseID string) FormationKey {
+	return FormationKey{AppID: appID, ReleaseID: releaseID}
+}
+
 type VolumeCreator interface {
 	CreateVolume(string) (*volume.Info, error)
 }
@@ -106,4 +114,5 @@ type FormationRetriever interface {
 
 type ControllerClient interface {
 	FormationRetriever
+	PutJob(*ct.Job) error
 }

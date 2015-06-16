@@ -11,6 +11,8 @@ import (
 	"github.com/flynn/flynn/host/types"
 )
 
+const eventBufferSize int = 1000
+
 type Scheduler struct {
 	utils.ControllerClient
 	utils.ClusterClient
@@ -20,7 +22,7 @@ type Scheduler struct {
 	jobs    *jobMap
 	jobsMtx sync.RWMutex
 
-	listeners map[chan *Event]struct{}
+	listeners map[chan Event]struct{}
 	listenMtx sync.RWMutex
 
 	stop     chan struct{}
@@ -36,10 +38,11 @@ func NewScheduler(cluster utils.ClusterClient, cc utils.ControllerClient) *Sched
 		ClusterClient:    cluster,
 		log:              log15.New("component", "scheduler"),
 		jobs:             newJobMap(),
-		listeners:        make(map[chan *Event]struct{}),
+		listeners:        make(map[chan Event]struct{}),
 		stop:             make(chan struct{}),
 		formations:       newFormations(),
 		formationChange:  make(chan *ct.ExpandedFormation, 1),
+		jobRequests:      make(chan *JobRequest, eventBufferSize),
 	}
 }
 
@@ -53,10 +56,13 @@ func (s *Scheduler) Run() error {
 	defer log.Info("exiting scheduler loop")
 
 	for {
-		// check if we should stop first
+		// first, check if we should stop or process pending job events
 		select {
 		case <-s.stop:
 			return nil
+		case req := <-s.jobRequests:
+			s.HandleJobRequest(req)
+			continue
 		default:
 		}
 
@@ -65,15 +71,14 @@ func (s *Scheduler) Run() error {
 			log.Error("error performing cluster sync", "err", err)
 			continue
 		}
-		log.Info("finished cluster sync")
 
-		// TODO: watch events
+		log.Info("starting watching events")
 		select {
 		case <-s.stop:
 			return nil
 		case fc := <-s.formationChange:
 			if err := s.FormationChange(fc); err != nil {
-				log.Error("error performing cluster sync", "err", err)
+				log.Error("error performing formation change", "err", err)
 				continue
 			}
 		case <-time.After(time.Second):
@@ -86,7 +91,7 @@ func (s *Scheduler) Sync() (err error) {
 	log := s.log.New("fn", "Sync")
 
 	defer func() {
-		s.sendEvent(&Event{Type: EventTypeClusterSync, err: err})
+		s.sendEvent(NewEvent(EventTypeClusterSync, err, nil))
 	}()
 
 	log.Info("getting host list")
@@ -128,14 +133,14 @@ func (s *Scheduler) Sync() (err error) {
 				continue
 			}
 			// TODO finish creating job
-			//go s.PutJob(&ct.Job{
-			//	ID:        h.ID() + "-" + job.ID,
-			//	AppID:     appID,
-			//	ReleaseID: releaseID,
-			//	Type:      jobType,
-			//	State:     "up",
-			//	Meta:      utils.JobMetaFromMetadata(job.Metadata),
-			//})
+			s.PutJob(&ct.Job{
+				ID:        h.ID() + "-" + job.ID,
+				AppID:     appID,
+				ReleaseID: releaseID,
+				Type:      jobType,
+				State:     "up",
+				Meta:      utils.JobMetaFromMetadata(job.Metadata),
+			})
 			j := f.jobs.Add(jobType, appID, releaseID, h.ID(), job.ID)
 			s.jobs.Add(j)
 		}
@@ -200,7 +205,7 @@ func (s *Scheduler) FormationChange(ef *ct.ExpandedFormation) (err error) {
 		if err != nil {
 			log.Error("error in FormationChange", "err", err)
 		}
-		s.sendEvent(&Event{Type: EventTypeFormationChange, err: err})
+		s.sendEvent(NewEvent(EventTypeFormationChange, err, nil))
 	}()
 
 	f := s.formations.Get(ef.App.ID, ef.Release.ID)
@@ -212,6 +217,12 @@ func (s *Scheduler) FormationChange(ef *ct.ExpandedFormation) (err error) {
 		s.formations.Add(f)
 	}
 	return f.Rectify()
+}
+
+func (s *Scheduler) HandleJobRequest(req *JobRequest) error {
+	f := s.formations.Get(req.AppID, req.ReleaseID)
+	f.handleJobRequest(req.RequestType, req.JobType, req.HostID)
+	return nil
 }
 
 func (s *Scheduler) Stop() error {
@@ -227,7 +238,7 @@ func (s *Scheduler) GetJob(id string) (*host.ActiveJob, error) {
 	if job == nil {
 		return nil, fmt.Errorf("No job found with ID %q", id)
 	}
-	host, err := s.Host(job.HostID())
+	host, err := s.Host(job.HostID)
 	if err != nil {
 		return nil, err
 	}
@@ -238,13 +249,7 @@ func (s *Scheduler) GetJob(id string) (*host.ActiveJob, error) {
 	return hostJob, nil
 }
 
-func (s *Scheduler) PutJob(job *ct.Job) error {
-	s.jobsMtx.Lock()
-	defer s.jobsMtx.Unlock()
-	return nil
-}
-
-func (s *Scheduler) Subscribe(events chan *Event) *Stream {
+func (s *Scheduler) Subscribe(events chan Event) *Stream {
 	s.log.Info("adding subscriber", "fn", "Subscribe")
 	s.listenMtx.Lock()
 	defer s.listenMtx.Unlock()
@@ -252,7 +257,7 @@ func (s *Scheduler) Subscribe(events chan *Event) *Stream {
 	return &Stream{s, events}
 }
 
-func (s *Scheduler) Unsubscribe(events chan *Event) {
+func (s *Scheduler) Unsubscribe(events chan Event) {
 	s.log.Info("removing subscriber", "fn", "Unsubscribe")
 	s.listenMtx.Lock()
 	defer s.listenMtx.Unlock()
@@ -261,7 +266,7 @@ func (s *Scheduler) Unsubscribe(events chan *Event) {
 
 type Stream struct {
 	s      *Scheduler
-	events chan *Event
+	events chan Event
 }
 
 func (s *Stream) Close() error {
@@ -269,24 +274,69 @@ func (s *Stream) Close() error {
 	return nil
 }
 
-func (s *Scheduler) sendEvent(event *Event) {
+func (s *Scheduler) sendEvent(event Event) {
 	s.listenMtx.RLock()
 	defer s.listenMtx.RUnlock()
-	s.log.Info("sending event to listeners", "event.type", event.Type, "listeners.count", len(s.listeners))
+	s.log.Info("sending event to listeners", "event.type", event.Type(), "listeners.count", len(s.listeners))
 	for ch := range s.listeners {
 		// TODO: handle slow listeners
 		ch <- event
 	}
 }
 
-type Event struct {
-	Type EventType
-	err  error
+type Event interface {
+	Type() EventType
+	Err() error
 }
 
 type EventType string
 
 const (
+	EventTypeDefault         EventType = "default"
 	EventTypeClusterSync     EventType = "cluster-sync"
 	EventTypeFormationChange EventType = "formation-change"
+	EventTypeJobStart        EventType = "start-job"
 )
+
+type DefaultEvent struct {
+	err error
+	typ EventType
+}
+
+func (de *DefaultEvent) Err() error {
+	return de.err
+}
+
+func (de *DefaultEvent) Type() EventType {
+	return de.typ
+}
+
+type ClusterSyncEvent struct {
+	Event
+}
+
+type FormationChangeEvent struct {
+	Event
+}
+
+type JobStartEvent struct {
+	Event
+	Job *Job
+}
+
+func NewEvent(typ EventType, err error, data interface{}) Event {
+	switch typ {
+	case EventTypeClusterSync:
+		return &ClusterSyncEvent{Event: &DefaultEvent{err: err, typ: typ}}
+	case EventTypeFormationChange:
+		return &FormationChangeEvent{Event: &DefaultEvent{err: err, typ: typ}}
+	case EventTypeJobStart:
+		job, ok := data.(*Job)
+		if !ok {
+			job = nil
+		}
+		return &JobStartEvent{Event: &DefaultEvent{err: err, typ: typ}, Job: job}
+	default:
+		return &DefaultEvent{err: err, typ: EventTypeDefault}
+	}
+}

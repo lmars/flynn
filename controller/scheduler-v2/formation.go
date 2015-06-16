@@ -9,22 +9,18 @@ import (
 	"github.com/flynn/flynn/host/types"
 )
 
-type formationKey struct {
-	appID, releaseID string
-}
-
 type Formations struct {
-	formations map[formationKey]*Formation
+	formations map[utils.FormationKey]*Formation
 }
 
 func newFormations() *Formations {
 	return &Formations{
-		formations: make(map[formationKey]*Formation),
+		formations: make(map[utils.FormationKey]*Formation),
 	}
 }
 
 func (fs *Formations) Get(appID, releaseID string) *Formation {
-	if form, ok := fs.formations[formationKey{appID, releaseID}]; ok {
+	if form, ok := fs.formations[utils.FormationKey{AppID: appID, ReleaseID: releaseID}]; ok {
 		return form
 	}
 	return nil
@@ -53,8 +49,8 @@ func NewFormation(s *Scheduler, ef *ct.ExpandedFormation) *Formation {
 	}
 }
 
-func (f *Formation) key() formationKey {
-	return formationKey{f.App.ID, f.Release.ID}
+func (f *Formation) key() utils.FormationKey {
+	return utils.FormationKey{f.App.ID, f.Release.ID}
 }
 
 func (f *Formation) SetFormation(ef *ct.ExpandedFormation) {
@@ -69,9 +65,9 @@ func (f *Formation) Rectify() error {
 		actual := len(f.jobs[t])
 		diff := expected - actual
 		if diff > 0 {
-			f.add(diff, t, "")
+			f.sendJobRequest(JobRequestTypeUp, diff, t, "")
 		} else if diff < 0 {
-			f.remove(-diff, t, "")
+			f.sendJobRequest(JobRequestTypeDown, -diff, t, "")
 		}
 	}
 
@@ -83,41 +79,55 @@ func (f *Formation) Rectify() error {
 		}
 
 		if _, exists := f.Processes[t]; !exists {
-			f.remove(len(jobs), t, "")
+			f.sendJobRequest(JobRequestTypeDown, len(jobs), t, "")
 		}
 	}
 	return nil
 }
 
-func (f *Formation) add(n int, name string, hostID string) {
-	log := f.s.log.New("fn", "add")
-	log.Info("adding jobs", "count", n, "job.name", name, "host.id", hostID)
-	for i := 0; i < n; i++ {
-		f.start(name, hostID)
+func (f *Formation) sendJobRequest(requestType JobRequestType, numJobs int, typ string, hostID string) {
+	for i := 0; i < numJobs; i++ {
+		f.s.jobRequests <- NewJobRequest(requestType, typ, f.App.ID, f.Release.ID, hostID)
 	}
 }
 
-func (f *Formation) remove(n int, name string, hostID string) {
-	log := f.s.log.New("fn", "remove")
-	log.Info("removing jobs", "count", n, "job.name", name, "host.id", hostID)
-	// TODO implement
+func (f *Formation) handleJobRequest(requestType JobRequestType, typ string, hostID string) (err error) {
+	log := f.s.log.New("fn", "handleJobRequest")
+	defer func() {
+		if err != nil {
+			log.Error("error handling job request", "error", err)
+		}
+	}()
+
+	switch requestType {
+	case JobRequestTypeUp:
+		_, err = f.startJob(typ, hostID)
+	case JobRequestTypeDown:
+	default:
+		return fmt.Errorf("Unknown job request type")
+	}
+	return err
 }
 
-func (f *Formation) start(typ string, hostID string) (job *Job, err error) {
-	log := f.s.log.New("fn", "remove")
+func (f *Formation) startJob(typ, hostID string) (job *Job, err error) {
+	log := f.s.log.New("fn", "startJob")
 	defer func() {
 		if err != nil {
 			log.Error("error starting job", "error", err)
+		} else if job == nil {
+			log.Error("couldn't obtain job", "job", job)
 		} else {
-			log.Info("started job", "host.id", job.HostID, "job.id", job.ID)
+			log.Info("started job", "host.id", job.HostID, "job.type", job.JobType, "job.id", job.ID)
 		}
+		f.s.sendEvent(NewEvent(EventTypeJobStart, err, job))
 	}()
 	h, err := f.findHost(typ, hostID)
 	if err != nil {
 		return nil, err
 	}
 
-	hostJob := f.jobConfig(typ, h.ID())
+	log.Info("formation", "app", f.App, "release", f.Release, "artifact", f.Artifact)
+	hostJob := f.configureJob(typ, h.ID())
 
 	// Provision a data volume on the host if needed.
 	if f.Release.Processes[typ].Data {
@@ -131,18 +141,26 @@ func (f *Formation) start(typ string, hostID string) (job *Job, err error) {
 
 	if err := h.AddJob(hostJob); err != nil {
 		f.jobs.Remove(job)
-		f.s.jobs.Remove(job.ID())
+		f.s.jobs.Remove(job.ID)
 		return nil, err
 	}
+	f.s.PutJob(&ct.Job{
+		ID:        h.ID() + "-" + job.ID,
+		AppID:     job.AppID,
+		ReleaseID: job.ReleaseID,
+		Type:      job.JobType,
+		State:     "up",
+		Meta:      utils.JobMetaFromMetadata(hostJob.Metadata),
+	})
 	return job, nil
 }
 
-func (f *Formation) jobConfig(name string, hostID string) *host.Job {
+func (f *Formation) configureJob(typ, hostID string) *host.Job {
 	return utils.JobConfig(&ct.ExpandedFormation{
 		App:      &ct.App{ID: f.App.ID, Name: f.App.Name},
 		Release:  f.Release,
 		Artifact: f.Artifact,
-	}, name, hostID)
+	}, typ, hostID)
 }
 
 func (f *Formation) listJobs(h utils.HostClient, jobType string) (map[string]host.ActiveJob, error) {

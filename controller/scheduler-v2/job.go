@@ -9,31 +9,54 @@ type jobKey struct {
 	hostID, jobID string
 }
 
-type IJobSpec interface {
-	Type() string
-	AppID() string
-	ReleaseID() string
-}
+type JobRequestType string
 
-type IJobRequest interface {
-	IJobSpec
-	HostID() string
-}
+const (
+	JobRequestTypeUp   JobRequestType = "up"
+	JobRequestTypeDown JobRequestType = "down"
+)
 
 type JobSpec struct {
-	typ       string
-	appID     string
-	releaseID string
+	JobType   string
+	AppID     string
+	ReleaseID string
+}
+
+func NewJobSpec(typ, appID, releaseID string) *JobSpec {
+	return &JobSpec{
+		JobType:   typ,
+		AppID:     appID,
+		ReleaseID: releaseID,
+	}
+}
+
+type HostJobSpec struct {
+	*JobSpec
+	HostID string
+}
+
+func NewHostJobSpec(typ, appID, releaseID, hostID string) *HostJobSpec {
+	return &HostJobSpec{
+		JobSpec: NewJobSpec(typ, appID, releaseID),
+		HostID:  hostID,
+	}
 }
 
 type JobRequest struct {
-	IJobSpec
-	hostID string
+	*HostJobSpec
+	RequestType JobRequestType
+}
+
+func NewJobRequest(requestType JobRequestType, typ, appID, releaseID, hostID string) *JobRequest {
+	return &JobRequest{
+		HostJobSpec: NewHostJobSpec(typ, appID, releaseID, hostID),
+		RequestType: requestType,
+	}
 }
 
 type Job struct {
-	IJobRequest
-	id string
+	*HostJobSpec
+	ID string
 
 	restarts  int
 	timer     *time.Timer
@@ -41,45 +64,10 @@ type Job struct {
 	startedAt time.Time
 }
 
-func (j *JobSpec) Type() string {
-	return j.typ
-}
-
-func (j *JobSpec) AppID() string {
-	return j.appID
-}
-
-func (j *JobSpec) ReleaseID() string {
-	return j.releaseID
-}
-
-func (j *JobRequest) HostID() string {
-	return j.hostID
-}
-
-func (j *Job) ID() string {
-	return j.id
-}
-
-func NewJobSpec(typ, appID, releaseID string) *JobSpec {
-	return &JobSpec{
-		typ:       typ,
-		appID:     appID,
-		releaseID: releaseID,
-	}
-}
-
-func NewJobRequest(typ, appID, releaseID, hostID string) *JobRequest {
-	return &JobRequest{
-		IJobSpec: NewJobSpec(typ, appID, releaseID),
-		hostID:   hostID,
-	}
-}
-
 func NewJob(typ, appID, releaseID, hostID, id string) *Job {
 	return &Job{
-		IJobRequest: NewJobRequest(typ, appID, releaseID, hostID),
-		id:          id,
+		HostJobSpec: NewHostJobSpec(typ, appID, releaseID, hostID),
+		ID:          id,
 	}
 }
 
@@ -97,8 +85,8 @@ func (m jobTypeMap) Add(typ, appID, releaseID, hostID, id string) *Job {
 }
 
 func (m jobTypeMap) Remove(job *Job) {
-	if jobs, ok := m[job.Type()]; ok {
-		j := jobs[jobKey{job.HostID(), job.ID()}]
+	if jobs, ok := m[job.JobType]; ok {
+		j := jobs[jobKey{job.HostID, job.ID}]
 		// cancel job restarts
 		j.timerMtx.Lock()
 		if j.timer != nil {
@@ -106,7 +94,7 @@ func (m jobTypeMap) Remove(job *Job) {
 			j.timer = nil
 		}
 		j.timerMtx.Unlock()
-		delete(jobs, jobKey{job.HostID(), job.ID()})
+		delete(jobs, jobKey{job.HostID, job.ID})
 	}
 }
 
@@ -125,7 +113,7 @@ type jobMap struct {
 
 func (m *jobMap) Add(job *Job) {
 	m.mtx.Lock()
-	m.jobs[job.ID()] = job
+	m.jobs[job.ID] = job
 	m.mtx.Unlock()
 }
 
