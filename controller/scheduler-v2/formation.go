@@ -34,6 +34,16 @@ func (fs *Formations) Add(f *Formation) *Formation {
 	return f
 }
 
+func (fs *Formations) RectifyAll() error {
+	for _, f := range fs.formations {
+		err := f.Rectify()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type Formation struct {
 	*ct.ExpandedFormation
 
@@ -51,6 +61,10 @@ func NewFormation(s *Scheduler, ef *ct.ExpandedFormation) *Formation {
 
 func (f *Formation) key() utils.FormationKey {
 	return utils.FormationKey{f.App.ID, f.Release.ID}
+}
+
+func (f *Formation) GetJobsForType(typ string) map[jobKey]*Job {
+	return f.jobs[typ]
 }
 
 func (f *Formation) SetFormation(ef *ct.ExpandedFormation) {
@@ -114,8 +128,6 @@ func (f *Formation) startJob(typ, hostID string) (job *Job, err error) {
 	defer func() {
 		if err != nil {
 			log.Error("error starting job", "error", err)
-		} else if job == nil {
-			log.Error("couldn't obtain job", "job", job)
 		} else {
 			log.Info("started job", "host.id", job.HostID, "job.type", job.JobType, "job.id", job.ID)
 		}
@@ -126,7 +138,7 @@ func (f *Formation) startJob(typ, hostID string) (job *Job, err error) {
 		return nil, err
 	}
 
-	log.Info("formation", "app", f.App, "release", f.Release, "artifact", f.Artifact)
+	log.Info("STUFF", "artifact", f.Artifact)
 	hostJob := f.configureJob(typ, h.ID())
 
 	// Provision a data volume on the host if needed.

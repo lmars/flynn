@@ -112,7 +112,7 @@ func (s *Scheduler) Sync() (err error) {
 			log.Error("error getting jobs list", "err", err)
 			continue
 		}
-		log.Info("got jobs", "count", len(activeJobs))
+		log.Info("active jobs", "count", len(activeJobs))
 		for _, activeJob := range activeJobs {
 			job := activeJob.Job
 			appID := job.Metadata["flynn-controller.app"]
@@ -145,6 +145,10 @@ func (s *Scheduler) Sync() (err error) {
 			s.jobs.Add(j)
 		}
 	}
+	if err != nil {
+		return err
+	}
+	err = s.formations.RectifyAll()
 	return err
 }
 

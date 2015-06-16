@@ -9,6 +9,7 @@ import (
 	. "github.com/flynn/flynn/controller/testutils"
 	ct "github.com/flynn/flynn/controller/types"
 	"github.com/flynn/flynn/host/types"
+	"github.com/flynn/flynn/pkg/random"
 )
 
 func Test(t *testing.T) { TestingT(t) }
@@ -17,17 +18,27 @@ type TestSuite struct{}
 
 var _ = Suite(&TestSuite{})
 
-func createTestScheduler(appID string, jobID string, processes map[string]int) *Scheduler {
+func createTestScheduler(appID string, processes map[string]int) *Scheduler {
 	artifact := &ct.Artifact{ID: "artifact-1"}
 	release := NewRelease("release-1", artifact, processes)
 	h := NewFakeHostClient("host-1")
-	h.AddJob(&host.Job{
-		ID: jobID,
-		Metadata: map[string]string{
-			"flynn-controller.app":     appID,
-			"flynn-controller.release": release.ID,
-		},
-	})
+	for k, c := range processes {
+		for i := 0; i < c; i++ {
+			jobID := random.UUID()
+			h.AddJob(&host.Job{
+				ID: jobID,
+				Metadata: map[string]string{
+					"flynn-controller.app":     appID,
+					"flynn-controller.release": release.ID,
+					"flynn-controller.type":    k,
+				},
+				Artifact: host.Artifact{
+					Type: artifact.Type,
+					URI:  artifact.URI,
+				},
+			})
+		}
+	}
 	cluster := NewFakeCluster()
 	cluster.SetHosts(map[string]*FakeHostClient{h.ID(): h})
 	cc := NewFakeControllerClient(appID, release, artifact, processes)
@@ -55,9 +66,7 @@ func waitForEventType(events chan Event, etype EventType) (Event, error) {
 }
 
 func (ts *TestSuite) TestInitialClusterSync(c *C) {
-	jobID := "job-1"
-	s := createTestScheduler("testApp", jobID, map[string]int{"web": 1})
-	s.log.Info("Testing cluster sync")
+	s := createTestScheduler("testApp", map[string]int{"web": 1})
 
 	events := make(chan Event)
 	stream := s.Subscribe(events)
@@ -70,16 +79,20 @@ func (ts *TestSuite) TestInitialClusterSync(c *C) {
 	fatalIfError(c, err)
 
 	// check the scheduler has the job
-	job, err := s.GetJob(jobID)
+	formation, err := s.getFormation("testApp", "testApp", "release-1")
+	jobs := formation.GetJobsForType("web")
 	c.Assert(err, IsNil)
-	c.Assert(job, NotNil)
-	c.Assert(job.Job.ID, Equals, jobID)
+	c.Assert(jobs, NotNil)
+	for _, j := range jobs {
+		c.Assert(j.HostID, Equals, "host-1")
+	}
+	c.Assert(len(jobs), Equals, 1)
 }
 
 func (ts *TestSuite) TestFormationChange(c *C) {
-	jobID := "job-1"
-	s := createTestScheduler("testApp", jobID, map[string]int{"web": 1})
+	s := createTestScheduler("testApp", map[string]int{"web": 1})
 	release, _ := s.GetRelease("release-1")
+	artifact, _ := s.GetArtifact(release.ArtifactID)
 	s.log.Info("Testing formation change")
 
 	events := make(chan Event, 1)
@@ -98,12 +111,12 @@ func (ts *TestSuite) TestFormationChange(c *C) {
 			ID:   "test-formation-change",
 		},
 		Release:   release,
+		Artifact:  artifact,
 		Processes: map[string]int{"web": 2},
 	}
 
 	_, err = waitForEventType(events, EventTypeFormationChange)
 	fatalIfError(c, err)
-
 	e, err := waitForEventType(events, EventTypeJobStart)
 	fatalIfError(c, err)
 	je, ok := e.(*JobStartEvent)
