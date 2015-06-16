@@ -19,8 +19,7 @@ type Scheduler struct {
 	log        log15.Logger
 	formations *Formations
 
-	jobs    *jobMap
-	jobsMtx sync.RWMutex
+	jobs *jobMap
 
 	listeners map[chan Event]struct{}
 	listenMtx sync.RWMutex
@@ -102,8 +101,6 @@ func (s *Scheduler) Sync() (err error) {
 	}
 	log.Info(fmt.Sprintf("got %d hosts", len(hosts)))
 
-	s.jobsMtx.Lock()
-	defer s.jobsMtx.Unlock()
 	for _, h := range hosts {
 		log = log.New("host_id", h.ID())
 		log.Info("getting jobs list")
@@ -236,8 +233,6 @@ func (s *Scheduler) Stop() error {
 }
 
 func (s *Scheduler) GetJob(id string) (*host.ActiveJob, error) {
-	s.jobsMtx.RLock()
-	defer s.jobsMtx.RUnlock()
 	job := s.jobs.Get(id)
 	if job == nil {
 		return nil, fmt.Errorf("No job found with ID %q", id)

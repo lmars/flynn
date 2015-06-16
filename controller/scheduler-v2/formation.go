@@ -175,26 +175,7 @@ func (f *Formation) configureJob(typ, hostID string) *host.Job {
 	}, typ, hostID)
 }
 
-func (f *Formation) listJobs(h utils.HostClient, jobType string) (map[string]host.ActiveJob, error) {
-	allJobs, err := h.ListJobs()
-	if err != nil {
-		return nil, err
-	}
-	if jobType == "" {
-		return allJobs, nil
-	} else {
-		jobs := make(map[string]host.ActiveJob, len(allJobs))
-		for jobID, job := range allJobs {
-			if f.jobType(job.Job) == jobType {
-				jobs[jobID] = job
-			}
-		}
-		return jobs, nil
-	}
-}
-
 func (f *Formation) findHost(typ, hostID string) (utils.HostClient, error) {
-	log := f.s.log.New("fn", "findHost")
 	hosts, err := f.s.Hosts()
 	if err != nil {
 		return nil, err
@@ -203,16 +184,13 @@ func (f *Formation) findHost(typ, hostID string) (utils.HostClient, error) {
 		return nil, fmt.Errorf("scheduler: no online hosts")
 	}
 
-	var minCount int = math.MaxInt32
 	if hostID == "" {
+		hostMap := f.getHostMap(typ)
+		var minCount int = math.MaxInt32
 		for _, host := range hosts {
-			jobs, err := f.listJobs(host, typ)
-			if err != nil {
-				log.Error("error listing jobs", "job.type", typ, "host.id", host.ID())
-				continue
-			}
-			if len(jobs) < minCount {
-				minCount = len(jobs)
+			jobCount := hostMap[host.ID()]
+			if jobCount < minCount {
+				minCount = jobCount
 				hostID = host.ID()
 			}
 		}
@@ -225,6 +203,14 @@ func (f *Formation) findHost(typ, hostID string) (utils.HostClient, error) {
 		return nil, err
 	}
 	return h, nil
+}
+
+func (f *Formation) getHostMap(typ string) map[string]int {
+	hostMap := make(map[string]int)
+	for _, j := range f.jobs[typ] {
+		hostMap[j.HostID]++
+	}
+	return hostMap
 }
 
 func (f *Formation) jobType(job *host.Job) string {
