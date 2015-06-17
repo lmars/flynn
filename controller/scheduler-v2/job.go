@@ -43,20 +43,20 @@ func NewHostJobSpec(typ, appID, releaseID, hostID string) *HostJobSpec {
 }
 
 type JobRequest struct {
-	*HostJobSpec
+	*Job
 	RequestType JobRequestType
 }
 
-func NewJobRequest(requestType JobRequestType, typ, appID, releaseID, hostID string) *JobRequest {
+func NewJobRequest(requestType JobRequestType, typ, appID, releaseID, hostID, jobID string) *JobRequest {
 	return &JobRequest{
-		HostJobSpec: NewHostJobSpec(typ, appID, releaseID, hostID),
+		Job:         NewJob(typ, appID, releaseID, hostID, jobID),
 		RequestType: requestType,
 	}
 }
 
 type Job struct {
 	*HostJobSpec
-	ID string
+	JobID string
 
 	restarts  int
 	timer     *time.Timer
@@ -67,26 +67,25 @@ type Job struct {
 func NewJob(typ, appID, releaseID, hostID, id string) *Job {
 	return &Job{
 		HostJobSpec: NewHostJobSpec(typ, appID, releaseID, hostID),
-		ID:          id,
+		JobID:       id,
 	}
 }
 
 type jobTypeMap map[string]map[jobKey]*Job
 
-func (m jobTypeMap) Add(typ, appID, releaseID, hostID, id string) *Job {
-	jobs, ok := m[typ]
+func (m jobTypeMap) Add(job *Job) *Job {
+	jobs, ok := m[job.JobType]
 	if !ok {
 		jobs = make(map[jobKey]*Job)
-		m[typ] = jobs
+		m[job.JobType] = jobs
 	}
-	job := NewJob(typ, appID, releaseID, hostID, id)
-	jobs[jobKey{hostID, id}] = job
+	jobs[jobKey{job.HostID, job.JobID}] = job
 	return job
 }
 
 func (m jobTypeMap) Remove(job *Job) {
 	if jobs, ok := m[job.JobType]; ok {
-		j := jobs[jobKey{job.HostID, job.ID}]
+		j := jobs[jobKey{job.HostID, job.JobID}]
 		// cancel job restarts
 		j.timerMtx.Lock()
 		if j.timer != nil {
@@ -94,43 +93,10 @@ func (m jobTypeMap) Remove(job *Job) {
 			j.timer = nil
 		}
 		j.timerMtx.Unlock()
-		delete(jobs, jobKey{job.HostID, job.ID})
+		delete(jobs, jobKey{job.HostID, job.JobID})
 	}
 }
 
 func (m jobTypeMap) Get(typ, host, id string) *Job {
 	return m[typ][jobKey{host, id}]
-}
-
-func newJobMap() *jobMap {
-	return &jobMap{jobs: make(map[string]*Job)}
-}
-
-type jobMap struct {
-	jobs map[string]*Job
-	mtx  sync.RWMutex
-}
-
-func (m *jobMap) Add(job *Job) {
-	m.mtx.Lock()
-	m.jobs[job.ID] = job
-	m.mtx.Unlock()
-}
-
-func (m *jobMap) Remove(job string) {
-	m.mtx.Lock()
-	delete(m.jobs, job)
-	m.mtx.Unlock()
-}
-
-func (m *jobMap) Get(job string) *Job {
-	m.mtx.RLock()
-	defer m.mtx.RUnlock()
-	return m.jobs[job]
-}
-
-func (m *jobMap) Len() int {
-	m.mtx.RLock()
-	defer m.mtx.RUnlock()
-	return len(m.jobs)
 }

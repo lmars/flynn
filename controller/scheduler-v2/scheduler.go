@@ -8,7 +8,6 @@ import (
 	"github.com/flynn/flynn/Godeps/_workspace/src/gopkg.in/inconshreveable/log15.v2"
 	ct "github.com/flynn/flynn/controller/types"
 	"github.com/flynn/flynn/controller/utils"
-	"github.com/flynn/flynn/host/types"
 )
 
 const eventBufferSize int = 1000
@@ -19,7 +18,7 @@ type Scheduler struct {
 	log        log15.Logger
 	formations *Formations
 
-	jobs *jobMap
+	jobs map[string]*Job
 
 	listeners map[chan Event]struct{}
 	listenMtx sync.RWMutex
@@ -36,7 +35,7 @@ func NewScheduler(cluster utils.ClusterClient, cc utils.ControllerClient) *Sched
 		ControllerClient: cc,
 		ClusterClient:    cluster,
 		log:              log15.New("component", "scheduler"),
-		jobs:             newJobMap(),
+		jobs:             make(map[string]*Job),
 		listeners:        make(map[chan Event]struct{}),
 		stop:             make(chan struct{}),
 		formations:       newFormations(),
@@ -121,25 +120,11 @@ func (s *Scheduler) Sync() (err error) {
 			if appID == "" || releaseID == "" {
 				continue
 			}
-			if job := s.jobs.Get(job.ID); job != nil {
+			if _, ok := s.jobs[job.ID]; ok {
 				continue
 			}
 
-			f, err := s.getFormation(appID, appName, releaseID)
-			if err != nil {
-				continue
-			}
-			// TODO finish creating job
-			s.PutJob(&ct.Job{
-				ID:        h.ID() + "-" + job.ID,
-				AppID:     appID,
-				ReleaseID: releaseID,
-				Type:      jobType,
-				State:     "up",
-				Meta:      utils.JobMetaFromMetadata(job.Metadata),
-			})
-			j := f.jobs.Add(jobType, appID, releaseID, h.ID(), job.ID)
-			s.jobs.Add(j)
+			s.AddJob(NewJob(jobType, appID, releaseID, h.ID(), job.ID), appName, utils.JobMetaFromMetadata(job.Metadata))
 		}
 	}
 	if err != nil {
@@ -222,7 +207,7 @@ func (s *Scheduler) FormationChange(ef *ct.ExpandedFormation) (err error) {
 
 func (s *Scheduler) HandleJobRequest(req *JobRequest) error {
 	f := s.formations.Get(req.AppID, req.ReleaseID)
-	f.handleJobRequest(req.RequestType, req.JobType, req.HostID)
+	f.handleJobRequest(req)
 	return nil
 }
 
@@ -230,22 +215,6 @@ func (s *Scheduler) Stop() error {
 	s.log.Info("stopping scheduler loop", "fn", "Stop")
 	s.stopOnce.Do(func() { close(s.stop) })
 	return nil
-}
-
-func (s *Scheduler) GetJob(id string) (*host.ActiveJob, error) {
-	job := s.jobs.Get(id)
-	if job == nil {
-		return nil, fmt.Errorf("No job found with ID %q", id)
-	}
-	host, err := s.Host(job.HostID)
-	if err != nil {
-		return nil, err
-	}
-	hostJob, err := host.GetJob(id)
-	if err != nil {
-		return nil, err
-	}
-	return hostJob, nil
 }
 
 func (s *Scheduler) Subscribe(events chan Event) *Stream {
@@ -261,6 +230,43 @@ func (s *Scheduler) Unsubscribe(events chan Event) {
 	s.listenMtx.Lock()
 	defer s.listenMtx.Unlock()
 	delete(s.listeners, events)
+}
+
+func (s *Scheduler) AddJob(job *Job, appName string, metadata map[string]string) (*Job, error) {
+	f, err := s.getFormation(job.AppID, appName, job.ReleaseID)
+	if err != nil {
+		return nil, err
+	}
+	job = f.jobs.Add(job)
+	s.jobs[job.JobID] = job
+	s.PutJob(&ct.Job{
+		ID:        job.HostID + "-" + job.JobID,
+		AppID:     job.AppID,
+		ReleaseID: job.ReleaseID,
+		Type:      job.JobType,
+		State:     "up",
+		Meta:      metadata,
+	})
+	return job, nil
+}
+
+func (s *Scheduler) RemoveJob(jobID string) {
+	job, ok := s.jobs[jobID]
+	if !ok {
+		return
+	}
+	f := s.formations.Get(job.AppID, job.ReleaseID)
+	f.jobs.Remove(job)
+	s.PutJob(&ct.Job{
+		ID:        job.HostID + "-" + job.JobID,
+		AppID:     job.AppID,
+		ReleaseID: job.ReleaseID,
+		Type:      job.JobType,
+		State:     "down",
+		//TODO figure out what to do with metadata
+		Meta: make(map[string]string),
+	})
+	delete(s.jobs, jobID)
 }
 
 type Stream struct {
@@ -295,6 +301,7 @@ const (
 	EventTypeClusterSync     EventType = "cluster-sync"
 	EventTypeFormationChange EventType = "formation-change"
 	EventTypeJobStart        EventType = "start-job"
+	EventTypeJobStop         EventType = "stop-job"
 )
 
 type DefaultEvent struct {

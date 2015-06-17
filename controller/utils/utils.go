@@ -106,13 +106,9 @@ type ClusterClient interface {
 	Hosts() ([]HostClient, error)
 }
 
-type FormationRetriever interface {
+type ControllerClient interface {
 	GetRelease(releaseID string) (*ct.Release, error)
 	GetArtifact(artifactID string) (*ct.Artifact, error)
 	GetFormation(appID, releaseID string) (*ct.Formation, error)
-}
-
-type ControllerClient interface {
-	FormationRetriever
 	PutJob(*ct.Job) error
 }
