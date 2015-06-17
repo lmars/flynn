@@ -8,6 +8,7 @@ import (
 	"github.com/flynn/flynn/Godeps/_workspace/src/gopkg.in/inconshreveable/log15.v2"
 	ct "github.com/flynn/flynn/controller/types"
 	"github.com/flynn/flynn/controller/utils"
+	"github.com/flynn/flynn/host/types"
 )
 
 const eventBufferSize int = 1000
@@ -28,6 +29,8 @@ type Scheduler struct {
 
 	formationChange chan *ct.ExpandedFormation
 	jobRequests     chan *JobRequest
+
+	validJobStatuses map[host.JobStatus]bool
 }
 
 func NewScheduler(cluster utils.ClusterClient, cc utils.ControllerClient) *Scheduler {
@@ -41,6 +44,10 @@ func NewScheduler(cluster utils.ClusterClient, cc utils.ControllerClient) *Sched
 		formations:       newFormations(),
 		formationChange:  make(chan *ct.ExpandedFormation, 1),
 		jobRequests:      make(chan *JobRequest, eventBufferSize),
+		validJobStatuses: map[host.JobStatus]bool{
+			host.StatusStarting: true,
+			host.StatusRunning:  true,
+		},
 	}
 }
 
@@ -110,21 +117,23 @@ func (s *Scheduler) Sync() (err error) {
 		}
 		log.Info("active jobs", "count", len(activeJobs))
 		for _, activeJob := range activeJobs {
-			job := activeJob.Job
-			appID := job.Metadata["flynn-controller.app"]
-			appName := job.Metadata["flynn-controller.app_name"]
-			releaseID := job.Metadata["flynn-controller.release"]
-			jobType := job.Metadata["flynn-controller.type"]
-			log.Info("adding job", "host.id", h.ID(), "job.id", job.ID, "app.id", appID, "release.id", releaseID, "type", jobType)
+			if s.validJobStatuses[activeJob.Status] {
+				job := activeJob.Job
+				appID := job.Metadata["flynn-controller.app"]
+				appName := job.Metadata["flynn-controller.app_name"]
+				releaseID := job.Metadata["flynn-controller.release"]
+				jobType := job.Metadata["flynn-controller.type"]
+				log.Info("adding job", "host.id", h.ID(), "job.id", job.ID, "app.id", appID, "release.id", releaseID, "type", jobType)
 
-			if appID == "" || releaseID == "" {
-				continue
-			}
-			if _, ok := s.jobs[job.ID]; ok {
-				continue
-			}
+				if appID == "" || releaseID == "" {
+					continue
+				}
+				if _, ok := s.jobs[job.ID]; ok {
+					continue
+				}
 
-			s.AddJob(NewJob(jobType, appID, releaseID, h.ID(), job.ID), appName, utils.JobMetaFromMetadata(job.Metadata))
+				s.AddJob(NewJob(jobType, appID, releaseID, h.ID(), job.ID), appName, utils.JobMetaFromMetadata(job.Metadata))
+			}
 		}
 	}
 	if err != nil {
@@ -239,14 +248,7 @@ func (s *Scheduler) AddJob(job *Job, appName string, metadata map[string]string)
 	}
 	job = f.jobs.Add(job)
 	s.jobs[job.JobID] = job
-	s.PutJob(&ct.Job{
-		ID:        job.HostID + "-" + job.JobID,
-		AppID:     job.AppID,
-		ReleaseID: job.ReleaseID,
-		Type:      job.JobType,
-		State:     "up",
-		Meta:      metadata,
-	})
+	s.PutJob(controllerJobFromSchedulerJob(job, "up", metadata))
 	return job, nil
 }
 
@@ -257,15 +259,7 @@ func (s *Scheduler) RemoveJob(jobID string) {
 	}
 	f := s.formations.Get(job.AppID, job.ReleaseID)
 	f.jobs.Remove(job)
-	s.PutJob(&ct.Job{
-		ID:        job.HostID + "-" + job.JobID,
-		AppID:     job.AppID,
-		ReleaseID: job.ReleaseID,
-		Type:      job.JobType,
-		State:     "down",
-		//TODO figure out what to do with metadata
-		Meta: make(map[string]string),
-	})
+	s.PutJob(controllerJobFromSchedulerJob(job, "down", make(map[string]string)))
 	delete(s.jobs, jobID)
 }
 
@@ -317,14 +311,6 @@ func (de *DefaultEvent) Type() EventType {
 	return de.typ
 }
 
-type ClusterSyncEvent struct {
-	Event
-}
-
-type FormationChangeEvent struct {
-	Event
-}
-
 type JobStartEvent struct {
 	Event
 	Job *Job
@@ -332,10 +318,6 @@ type JobStartEvent struct {
 
 func NewEvent(typ EventType, err error, data interface{}) Event {
 	switch typ {
-	case EventTypeClusterSync:
-		return &ClusterSyncEvent{Event: &DefaultEvent{err: err, typ: typ}}
-	case EventTypeFormationChange:
-		return &FormationChangeEvent{Event: &DefaultEvent{err: err, typ: typ}}
 	case EventTypeJobStart:
 		job, ok := data.(*Job)
 		if !ok {
@@ -343,6 +325,18 @@ func NewEvent(typ EventType, err error, data interface{}) Event {
 		}
 		return &JobStartEvent{Event: &DefaultEvent{err: err, typ: typ}, Job: job}
 	default:
-		return &DefaultEvent{err: err, typ: EventTypeDefault}
+		return &DefaultEvent{err: err, typ: typ}
+	}
+}
+
+// TODO refactor `state` to JobStatus type and consolidate statuses across scheduler/controller/host
+func controllerJobFromSchedulerJob(job *Job, state string, metadata map[string]string) *ct.Job {
+	return &ct.Job{
+		ID:        job.HostID + "-" + job.JobID,
+		AppID:     job.AppID,
+		ReleaseID: job.ReleaseID,
+		Type:      job.JobType,
+		State:     state,
+		Meta:      metadata,
 	}
 }
