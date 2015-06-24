@@ -39,14 +39,13 @@ func runPs(args *docopt.Args, client *cluster.Client) error {
 			if format := args.String["<format>"]; format != "" {
 				tmpl, err := template.New("format").Funcs(template.FuncMap{
 					"metadata": func(key string) string { return job.Job.Metadata[key] },
-				}).Parse(format)
+				}).Parse(format + "\n")
 				if err != nil {
 					return err
 				}
 				if err := tmpl.Execute(os.Stdout, job); err != nil {
 					return err
 				}
-				fmt.Println()
 				continue
 			}
 			fmt.Println(clusterJobID(job))
