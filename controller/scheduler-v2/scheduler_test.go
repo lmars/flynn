@@ -22,15 +22,15 @@ func createTestScheduler(appID string, processes map[string]int) *Scheduler {
 	artifact := &ct.Artifact{ID: "artifact-1"}
 	release := NewRelease("release-1", artifact, processes)
 	h := NewFakeHostClient("host-1")
-	for k, c := range processes {
-		for i := 0; i < c; i++ {
+	for typ, count := range processes {
+		for i := 0; i < count; i++ {
 			jobID := random.UUID()
 			h.AddJob(&host.Job{
 				ID: jobID,
 				Metadata: map[string]string{
 					"flynn-controller.app":     appID,
 					"flynn-controller.release": release.ID,
-					"flynn-controller.type":    k,
+					"flynn-controller.type":    typ,
 				},
 				Artifact: host.Artifact{
 					Type: artifact.Type,
@@ -46,21 +46,21 @@ func createTestScheduler(appID string, processes map[string]int) *Scheduler {
 	return NewScheduler(cluster, cc)
 }
 
-func waitForEventType(events chan Event, etype EventType) (Event, error) {
+func waitForEvent(events chan Event, typ EventType) (Event, error) {
 	for {
 		select {
 		case event, ok := <-events:
 			if !ok {
 				return nil, fmt.Errorf("unexpected close of scheduler event stream")
 			}
-			if event.Type() == etype {
-				if event.Err() != nil {
-					return nil, fmt.Errorf("Error occurred occurred while processing event of type %q. Error: %v", etype, event.Err())
-				}
+			if err := event.Err(); err != nil {
+				return nil, fmt.Errorf("unexpected event error: %s", err)
+			}
+			if event.Type() == typ {
 				return event, nil
 			}
 		case <-time.After(time.Second):
-			return nil, fmt.Errorf("timed out waiting for cluster sync event")
+			return nil, fmt.Errorf("timed out waiting for %s event", typ)
 		}
 	}
 }
@@ -75,8 +75,8 @@ func (ts *TestSuite) TestInitialClusterSync(c *C) {
 	defer s.Stop()
 
 	// wait for a cluster sync event
-	_, err := waitForEventType(events, EventTypeClusterSync)
-	fatalIfError(c, err)
+	_, err := waitForEvent(events, EventTypeClusterSync)
+	c.Assert(err, IsNil)
 
 	// check the scheduler has the job
 	formation, err := s.getFormation("testApp", "testApp", "release-1")
@@ -102,8 +102,8 @@ func (ts *TestSuite) TestFormationChange(c *C) {
 	defer s.Stop()
 
 	// wait for a cluster sync event
-	_, err := waitForEventType(events, EventTypeClusterSync)
-	fatalIfError(c, err)
+	_, err := waitForEvent(events, EventTypeClusterSync)
+	c.Assert(err, IsNil)
 
 	s.formationChange <- &ct.ExpandedFormation{
 		App: &ct.App{
@@ -115,19 +115,11 @@ func (ts *TestSuite) TestFormationChange(c *C) {
 		Processes: map[string]int{"web": 2},
 	}
 
-	_, err = waitForEventType(events, EventTypeFormationChange)
-	fatalIfError(c, err)
-	e, err := waitForEventType(events, EventTypeJobStart)
-	fatalIfError(c, err)
+	_, err = waitForEvent(events, EventTypeFormationChange)
+	c.Assert(err, IsNil)
+	e, err := waitForEvent(events, EventTypeJobStart)
+	c.Assert(err, IsNil)
 	je, ok := e.(*JobStartEvent)
 	c.Assert(ok, Equals, true)
 	c.Assert(je.Job, NotNil)
-
-	s.stop <- struct{}{}
-}
-
-func fatalIfError(c *C, err error) {
-	if err != nil {
-		c.Fatal(err.Error())
-	}
 }
