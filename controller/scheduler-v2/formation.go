@@ -9,35 +9,26 @@ import (
 	"github.com/flynn/flynn/host/types"
 )
 
-type Formations struct {
-	formations map[utils.FormationKey]*Formation
-}
+type Formations map[utils.FormationKey]*Formation
 
-func newFormations() *Formations {
-	return &Formations{
-		formations: make(map[utils.FormationKey]*Formation),
-	}
-}
-
-func (fs *Formations) Get(appID, releaseID string) *Formation {
-	if form, ok := fs.formations[utils.FormationKey{AppID: appID, ReleaseID: releaseID}]; ok {
+func (fs Formations) Get(appID, releaseID string) *Formation {
+	if form, ok := fs[utils.FormationKey{AppID: appID, ReleaseID: releaseID}]; ok {
 		return form
 	}
 	return nil
 }
 
-func (fs *Formations) Add(f *Formation) *Formation {
-	if existing, ok := fs.formations[f.key()]; ok {
+func (fs Formations) Add(f *Formation) *Formation {
+	if existing, ok := fs[f.key()]; ok {
 		return existing
 	}
-	fs.formations[f.key()] = f
+	fs[f.key()] = f
 	return f
 }
 
-func (fs *Formations) RectifyAll() error {
-	for _, f := range fs.formations {
-		err := f.Rectify()
-		if err != nil {
+func (fs Formations) RectifyAll() error {
+	for _, f := range fs {
+		if err := f.Rectify(); err != nil {
 			return err
 		}
 	}

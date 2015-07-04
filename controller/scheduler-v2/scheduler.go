@@ -17,7 +17,7 @@ type Scheduler struct {
 	utils.ControllerClient
 	utils.ClusterClient
 	log        log15.Logger
-	formations *Formations
+	formations Formations
 
 	jobs map[string]*Job
 
@@ -41,7 +41,7 @@ func NewScheduler(cluster utils.ClusterClient, cc utils.ControllerClient) *Sched
 		jobs:             make(map[string]*Job),
 		listeners:        make(map[chan Event]struct{}),
 		stop:             make(chan struct{}),
-		formations:       newFormations(),
+		formations:       make(Formations),
 		formationChange:  make(chan *ct.ExpandedFormation, 1),
 		jobRequests:      make(chan *JobRequest, eventBufferSize),
 		validJobStatuses: map[host.JobStatus]bool{
