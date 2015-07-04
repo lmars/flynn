@@ -215,11 +215,3 @@ func (f *Formation) getHostMap(typ string) map[string]int {
 	}
 	return hostMap
 }
-
-func (f *Formation) jobType(job *host.Job) string {
-	if job.Metadata["flynn-controller.app"] != f.App.ID ||
-		job.Metadata["flynn-controller.release"] != f.Release.ID {
-		return ""
-	}
-	return job.Metadata["flynn-controller.type"]
-}
