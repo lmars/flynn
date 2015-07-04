@@ -110,7 +110,8 @@ func (s *Scheduler) Sync() (err error) {
 	for _, h := range hosts {
 		log = log.New("host_id", h.ID())
 		log.Info("getting jobs list")
-		activeJobs, err := h.ListJobs()
+		var activeJobs map[string]host.ActiveJob
+		activeJobs, err = h.ListJobs()
 		if err != nil {
 			log.Error("error getting jobs list", "err", err)
 			continue
