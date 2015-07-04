@@ -264,6 +264,14 @@ func (s *Scheduler) RemoveJob(jobID string) {
 	delete(s.jobs, jobID)
 }
 
+func (s *Scheduler) Jobs() map[string]*Job {
+	jobs := make(map[string]*Job)
+	for id, job := range s.jobs {
+		jobs[id] = job
+	}
+	return jobs
+}
+
 type Stream struct {
 	s      *Scheduler
 	events chan Event

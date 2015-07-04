@@ -18,10 +18,12 @@ type TestSuite struct{}
 
 var _ = Suite(&TestSuite{})
 
+const testHostID = "host-1"
+
 func createTestScheduler(appID string, processes map[string]int) *Scheduler {
 	artifact := &ct.Artifact{ID: "artifact-1"}
 	release := NewRelease("release-1", artifact, processes)
-	h := NewFakeHostClient("host-1")
+	h := NewFakeHostClient(testHostID)
 	for typ, count := range processes {
 		for i := 0; i < count; i++ {
 			jobID := random.UUID()
@@ -79,14 +81,13 @@ func (ts *TestSuite) TestInitialClusterSync(c *C) {
 	c.Assert(err, IsNil)
 
 	// check the scheduler has the job
-	formation, err := s.getFormation("testApp", "testApp", "release-1")
-	jobs := formation.GetJobsForType("web")
-	c.Assert(err, IsNil)
-	c.Assert(jobs, NotNil)
-	for _, j := range jobs {
-		c.Assert(j.HostID, Equals, "host-1")
+	jobs := s.Jobs()
+	c.Assert(jobs, HasLen, 1)
+	for _, job := range jobs {
+		c.Assert(job.Type, Equals, "web")
+		c.Assert(job.HostID, Equals, testHostID)
+		c.Assert(job.AppID, Equals, "testApp")
 	}
-	c.Assert(len(jobs), Equals, 1)
 }
 
 func (ts *TestSuite) TestFormationChange(c *C) {
