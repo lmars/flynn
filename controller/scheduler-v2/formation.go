@@ -1,12 +1,8 @@
 package main
 
 import (
-	"fmt"
-	"math"
-
 	ct "github.com/flynn/flynn/controller/types"
 	"github.com/flynn/flynn/controller/utils"
-	"github.com/flynn/flynn/host/types"
 )
 
 type Formations map[utils.FormationKey]*Formation
@@ -26,192 +22,32 @@ func (fs Formations) Add(f *Formation) *Formation {
 	return f
 }
 
-func (fs Formations) RectifyAll() error {
-	for _, f := range fs {
-		if err := f.Rectify(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 type Formation struct {
 	*ct.ExpandedFormation
-
-	jobs jobTypeMap
-	s    *Scheduler
 }
 
-func NewFormation(s *Scheduler, ef *ct.ExpandedFormation) *Formation {
-	return &Formation{
-		ExpandedFormation: ef,
-		jobs:              make(jobTypeMap),
-		s:                 s,
-	}
+func NewFormation(ef *ct.ExpandedFormation) *Formation {
+	return &Formation{ef}
 }
 
 func (f *Formation) key() utils.FormationKey {
 	return utils.FormationKey{f.App.ID, f.Release.ID}
 }
 
-func (f *Formation) GetJobsForType(typ string) map[jobKey]*Job {
-	return f.jobs[typ]
-}
+// Update stores the new processes and returns the diff from the previous
+// processes.
+func (f *Formation) Update(procs map[string]int) map[string]int {
+	diff := make(map[string]int)
+	for typ, requested := range procs {
+		current := f.Processes[typ]
+		diff[typ] = requested - current
+	}
 
-func (f *Formation) SetFormation(ef *ct.ExpandedFormation) {
-	f.ExpandedFormation = ef
-}
-
-func (f *Formation) Rectify() error {
-	log := f.s.log.New("fn", "rectify")
-	log.Info("rectifying formation", "app.id", f.App.ID, "release.id", f.Release.ID)
-
-	for t, expected := range f.Processes {
-		actual := len(f.jobs[t])
-		diff := expected - actual
-		if diff > 0 {
-			f.sendJobRequest(JobRequestTypeUp, diff, t, "", "")
-		} else if diff < 0 {
-			f.sendJobRequest(JobRequestTypeDown, -diff, t, "", "")
+	for typ, current := range f.Processes {
+		if _, ok := procs[typ]; !ok {
+			diff[typ] = -current
 		}
 	}
-
-	// remove extraneous process types
-	for t, jobs := range f.jobs {
-		// ignore jobs that don't have a type
-		if t == "" {
-			continue
-		}
-
-		if _, exists := f.Processes[t]; !exists {
-			f.sendJobRequest(JobRequestTypeDown, len(jobs), t, "", "")
-		}
-	}
-	return nil
-}
-
-func (f *Formation) sendJobRequest(requestType JobRequestType, numJobs int, typ string, hostID, jobID string) {
-	for i := 0; i < numJobs; i++ {
-		f.s.jobRequests <- NewJobRequest(requestType, typ, f.App.ID, f.Release.ID, hostID, jobID)
-	}
-}
-
-func (f *Formation) handleJobRequest(req *JobRequest) (err error) {
-	log := f.s.log.New("fn", "handleJobRequest")
-	defer func() {
-		if err != nil {
-			log.Error("error handling job request", "error", err)
-		}
-	}()
-
-	switch req.RequestType {
-	case JobRequestTypeUp:
-		_, err = f.startJob(req)
-	case JobRequestTypeDown:
-		err = f.stopJob(req)
-	default:
-		return fmt.Errorf("Unknown job request type")
-	}
-	return err
-}
-
-func (f *Formation) startJob(req *JobRequest) (job *Job, err error) {
-	log := f.s.log.New("fn", "startJob")
-	defer func() {
-		if err != nil {
-			log.Error("error starting job", "error", err)
-		} else {
-			log.Info("started job", "host.id", job.HostID, "job.type", job.Type, "job.id", job.JobID)
-		}
-		f.s.sendEvent(NewEvent(EventTypeJobStart, err, job))
-	}()
-	h, err := f.findBestHost(req.Type, req.HostID)
-	if err != nil {
-		return nil, err
-	}
-
-	hostJob := f.configureJob(req.Type, h.ID())
-
-	// Provision a data volume on the host if needed.
-	if f.Release.Processes[req.Type].Data {
-		if err := utils.ProvisionVolume(h, hostJob); err != nil {
-			return nil, err
-		}
-	}
-
-	if err := h.AddJob(hostJob); err != nil {
-		return nil, err
-	}
-	job, err = f.s.AddJob(
-		NewJob(req.Type, f.App.ID, f.Release.ID, h.ID(), hostJob.ID),
-		f.App.Name,
-		utils.JobMetaFromMetadata(hostJob.Metadata),
-	)
-	return job, err
-}
-
-func (f *Formation) stopJob(req *JobRequest) (err error) {
-	log := f.s.log.New("fn", "stopJob")
-	defer func() {
-		if err != nil {
-			log.Error("error stopping job", "error", err)
-		}
-		f.s.sendEvent(NewEvent(EventTypeJobStop, err, nil))
-	}()
-	h, err := f.s.Host(req.HostID)
-	if err != nil {
-		return err
-	}
-
-	if err := h.StopJob(req.JobID); err != nil {
-		return err
-	}
-	f.s.RemoveJob(req.JobID)
-	return nil
-}
-
-func (f *Formation) configureJob(typ, hostID string) *host.Job {
-	return utils.JobConfig(&ct.ExpandedFormation{
-		App:      &ct.App{ID: f.App.ID, Name: f.App.Name},
-		Release:  f.Release,
-		Artifact: f.Artifact,
-	}, typ, hostID)
-}
-
-func (f *Formation) findBestHost(typ, hostID string) (utils.HostClient, error) {
-	hosts, err := f.s.Hosts()
-	if err != nil {
-		return nil, err
-	}
-	if len(hosts) == 0 {
-		return nil, fmt.Errorf("scheduler: no online hosts")
-	}
-
-	if hostID == "" {
-		hostMap := f.getHostMap(typ)
-		var minCount int = math.MaxInt32
-		for _, host := range hosts {
-			jobCount := hostMap[host.ID()]
-			if jobCount < minCount {
-				minCount = jobCount
-				hostID = host.ID()
-			}
-		}
-	}
-	if hostID == "" {
-		return nil, fmt.Errorf("no host found")
-	}
-	h, err := f.s.Host(hostID)
-	if err != nil {
-		return nil, err
-	}
-	return h, nil
-}
-
-func (f *Formation) getHostMap(typ string) map[string]int {
-	hostMap := make(map[string]int)
-	for _, j := range f.jobs[typ] {
-		hostMap[j.HostID]++
-	}
-	return hostMap
+	f.Processes = procs
+	return diff
 }

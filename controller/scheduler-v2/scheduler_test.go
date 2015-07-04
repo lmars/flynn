@@ -18,11 +18,14 @@ type TestSuite struct{}
 
 var _ = Suite(&TestSuite{})
 
-const testHostID = "host-1"
+const (
+	testHostID    = "host-1"
+	testReleaseID = "release-1"
+)
 
 func createTestScheduler(appID string, processes map[string]int) *Scheduler {
 	artifact := &ct.Artifact{ID: "artifact-1"}
-	release := NewRelease("release-1", artifact, processes)
+	release := NewRelease(testReleaseID, artifact, processes)
 	h := NewFakeHostClient(testHostID)
 	for typ, count := range processes {
 		for i := 0; i < count; i++ {
@@ -91,10 +94,12 @@ func (ts *TestSuite) TestInitialClusterSync(c *C) {
 }
 
 func (ts *TestSuite) TestFormationChange(c *C) {
-	s := createTestScheduler("testApp", map[string]int{"web": 1})
-	release, _ := s.GetRelease("release-1")
-	artifact, _ := s.GetArtifact(release.ArtifactID)
-	s.log.Info("Testing formation change")
+	app := &ct.App{ID: random.UUID(), Name: "test-formation-change"}
+	s := createTestScheduler(app.ID, map[string]int{"web": 1})
+	release, err := s.GetRelease(testReleaseID)
+	c.Assert(err, IsNil)
+	artifact, err := s.GetArtifact(release.ArtifactID)
+	c.Assert(err, IsNil)
 
 	events := make(chan Event, 1)
 	stream := s.Subscribe(events)
@@ -102,15 +107,8 @@ func (ts *TestSuite) TestFormationChange(c *C) {
 	go s.Run()
 	defer s.Stop()
 
-	// wait for a cluster sync event
-	_, err := waitForEvent(events, EventTypeClusterSync)
-	c.Assert(err, IsNil)
-
 	s.formationChange <- &ct.ExpandedFormation{
-		App: &ct.App{
-			Name: "test-formation-change",
-			ID:   "test-formation-change",
-		},
+		App:       app,
 		Release:   release,
 		Artifact:  artifact,
 		Processes: map[string]int{"web": 2},
@@ -120,7 +118,11 @@ func (ts *TestSuite) TestFormationChange(c *C) {
 	c.Assert(err, IsNil)
 	e, err := waitForEvent(events, EventTypeJobStart)
 	c.Assert(err, IsNil)
-	je, ok := e.(*JobStartEvent)
+	event, ok := e.(*JobStartEvent)
 	c.Assert(ok, Equals, true)
-	c.Assert(je.Job, NotNil)
+	c.Assert(event.Job, NotNil)
+	job := event.Job
+	c.Assert(job.Type, Equals, "web")
+	c.Assert(job.AppID, Equals, app.ID)
+	c.Assert(job.ReleaseID, Equals, testReleaseID)
 }
