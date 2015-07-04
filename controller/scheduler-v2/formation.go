@@ -121,19 +121,19 @@ func (f *Formation) startJob(req *JobRequest) (job *Job, err error) {
 		if err != nil {
 			log.Error("error starting job", "error", err)
 		} else {
-			log.Info("started job", "host.id", job.HostID, "job.type", job.JobType, "job.id", job.JobID)
+			log.Info("started job", "host.id", job.HostID, "job.type", job.Type, "job.id", job.JobID)
 		}
 		f.s.sendEvent(NewEvent(EventTypeJobStart, err, job))
 	}()
-	h, err := f.findBestHost(req.JobType, req.HostID)
+	h, err := f.findBestHost(req.Type, req.HostID)
 	if err != nil {
 		return nil, err
 	}
 
-	hostJob := f.configureJob(req.JobType, h.ID())
+	hostJob := f.configureJob(req.Type, h.ID())
 
 	// Provision a data volume on the host if needed.
-	if f.Release.Processes[req.JobType].Data {
+	if f.Release.Processes[req.Type].Data {
 		if err := utils.ProvisionVolume(h, hostJob); err != nil {
 			return nil, err
 		}
@@ -143,7 +143,7 @@ func (f *Formation) startJob(req *JobRequest) (job *Job, err error) {
 		return nil, err
 	}
 	job, err = f.s.AddJob(
-		NewJob(req.JobType, f.App.ID, f.Release.ID, h.ID(), hostJob.ID),
+		NewJob(req.Type, f.App.ID, f.Release.ID, h.ID(), hostJob.ID),
 		f.App.Name,
 		utils.JobMetaFromMetadata(hostJob.Metadata),
 	)

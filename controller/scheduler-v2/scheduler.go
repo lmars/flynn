@@ -336,7 +336,7 @@ func controllerJobFromSchedulerJob(job *Job, state string, metadata map[string]s
 		ID:        job.HostID + "-" + job.JobID,
 		AppID:     job.AppID,
 		ReleaseID: job.ReleaseID,
-		Type:      job.JobType,
+		Type:      job.Type,
 		State:     state,
 		Meta:      metadata,
 	}

@@ -17,14 +17,14 @@ const (
 )
 
 type JobSpec struct {
-	JobType   string
+	Type      string
 	AppID     string
 	ReleaseID string
 }
 
 func NewJobSpec(typ, appID, releaseID string) *JobSpec {
 	return &JobSpec{
-		JobType:   typ,
+		Type:      typ,
 		AppID:     appID,
 		ReleaseID: releaseID,
 	}
@@ -74,17 +74,17 @@ func NewJob(typ, appID, releaseID, hostID, id string) *Job {
 type jobTypeMap map[string]map[jobKey]*Job
 
 func (m jobTypeMap) Add(job *Job) *Job {
-	jobs, ok := m[job.JobType]
+	jobs, ok := m[job.Type]
 	if !ok {
 		jobs = make(map[jobKey]*Job)
-		m[job.JobType] = jobs
+		m[job.Type] = jobs
 	}
 	jobs[jobKey{job.HostID, job.JobID}] = job
 	return job
 }
 
 func (m jobTypeMap) Remove(job *Job) {
-	if jobs, ok := m[job.JobType]; ok {
+	if jobs, ok := m[job.Type]; ok {
 		j := jobs[jobKey{job.HostID, job.JobID}]
 		// cancel job restarts
 		j.timerMtx.Lock()
