@@ -8,12 +8,15 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/coreos/go-etcd/etcd"
 	"github.com/flynn/flynn/discoverd/server"
+	"github.com/flynn/flynn/host/types"
 	"github.com/flynn/flynn/pkg/attempt"
+	"github.com/flynn/flynn/pkg/cluster"
 	"github.com/flynn/flynn/pkg/shutdown"
 )
 
@@ -21,7 +24,7 @@ func main() {
 	defer shutdown.Exit()
 
 	httpAddr := flag.String("http-addr", ":1111", "address to serve HTTP API from")
-	dnsAddr := flag.String("dns-addr", ":53", "address to service DNS from")
+	dnsAddr := flag.String("dns-addr", "", "address to service DNS from")
 	resolvers := flag.String("recursors", "8.8.8.8,8.8.4.4", "upstream recursive DNS servers")
 	etcdAddrs := flag.String("etcd", "http://127.0.0.1:2379", "etcd servers (comma separated)")
 	notify := flag.String("notify", "", "url to send webhook to after starting listener")
@@ -53,32 +56,46 @@ func main() {
 		log.Fatalf("Failed to perform initial etcd sync: %s", err)
 	}
 
-	dns := server.DNSServer{
-		UDPAddr: *dnsAddr,
-		TCPAddr: *dnsAddr,
-		Store:   state,
-	}
-	if *resolvers != "" {
-		dns.Recursors = strings.Split(*resolvers, ",")
-	}
-	if err := dns.ListenAndServe(); err != nil {
-		log.Fatalf("Failed to start DNS server: %s", err)
+	// if we have a DNS address, start a DNS server right away, otherwise
+	// wait for the host network to come up and then start a DNS server.
+	if *dnsAddr != "" {
+		var recursors []string
+		if *resolvers != "" {
+			recursors = strings.Split(*resolvers, ",")
+		}
+		if err := startDNSServer(state, *dnsAddr, recursors); err != nil {
+			log.Fatalf("Failed to start DNS server: %s", err)
+		}
+		log.Printf("discoverd listening for DNS on %s", *dnsAddr)
+	} else {
+		go func() {
+			status, err := waitForHostNetwork()
+			if err != nil {
+				log.Fatal(err)
+			}
+			ip, _, err := net.ParseCIDR(status.Network.Subnet)
+			if err != nil {
+				log.Fatal(err)
+			}
+			addr := ip.String() + ":53"
+			if err := startDNSServer(state, addr, status.Network.Resolvers); err != nil {
+				log.Fatalf("Failed to start DNS server: %s", err)
+			}
+			log.Printf("discoverd listening for DNS on %s", addr)
+		}()
 	}
 
 	l, err := net.Listen("tcp4", *httpAddr)
 	if err != nil {
 		log.Fatalf("Failed to start HTTP listener: %s", err)
 	}
-	log.Printf("discoverd listening for HTTP on %s and DNS on %s", *httpAddr, *dnsAddr)
+	log.Printf("discoverd listening for HTTP on %s", *httpAddr)
 
 	if *notify != "" {
 		addr := l.Addr().String()
 		host, port, _ := net.SplitHostPort(addr)
 		if host == "0.0.0.0" {
-			// try to get real address from dns addr
-			if dnsHost, _, _ := net.SplitHostPort(*dnsAddr); dnsHost != "" {
-				addr = net.JoinHostPort(dnsHost, port)
-			}
+			addr = net.JoinHostPort(os.Getenv("EXTERNAL_IP"), port)
 		}
 		data := struct {
 			URL string `json:"url"`
@@ -93,4 +110,20 @@ func main() {
 	}
 
 	http.Serve(l, server.NewHTTPHandler(server.NewBasicDatastore(state, backend)))
+}
+
+func startDNSServer(state *server.State, addr string, recursors []string) error {
+	dns := server.DNSServer{
+		UDPAddr:   addr,
+		TCPAddr:   addr,
+		Store:     state,
+		Recursors: recursors,
+	}
+	return dns.ListenAndServe()
+}
+
+func waitForHostNetwork() (*host.HostStatus, error) {
+	return cluster.WaitForHostStatus(func(status *host.HostStatus) bool {
+		return status.Network != nil && status.Network.Subnet != ""
+	})
 }
