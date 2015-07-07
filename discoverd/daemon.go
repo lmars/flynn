@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/coreos/go-etcd/etcd"
@@ -82,6 +83,9 @@ func main() {
 				log.Fatalf("Failed to start DNS server: %s", err)
 			}
 			log.Printf("discoverd listening for DNS on %s", addr)
+			if *notify != "" {
+				notifyWebhook(*notify, "", addr)
+			}
 		}()
 	}
 
@@ -97,16 +101,7 @@ func main() {
 		if host == "0.0.0.0" {
 			addr = net.JoinHostPort(os.Getenv("EXTERNAL_IP"), port)
 		}
-		data := struct {
-			URL string `json:"url"`
-		}{fmt.Sprintf("http://%s", addr)}
-		payload, _ := json.Marshal(data)
-		res, err := http.Post(*notify, "application/json", bytes.NewReader(payload))
-		if err != nil {
-			log.Printf("failed to notify: %s", err)
-		} else {
-			res.Body.Close()
-		}
+		notifyWebhook(*notify, fmt.Sprintf("http://%s", addr), *dnsAddr)
 	}
 
 	http.Serve(l, server.NewHTTPHandler(server.NewBasicDatastore(state, backend)))
@@ -126,4 +121,33 @@ func waitForHostNetwork() (*host.HostStatus, error) {
 	return cluster.WaitForHostStatus(func(status *host.HostStatus) bool {
 		return status.Network != nil && status.Network.Subnet != ""
 	})
+}
+
+type Status struct {
+	URL string `json:"url"`
+	DNS string `json:"dns"`
+}
+
+var (
+	status    Status
+	statusMtx sync.Mutex
+)
+
+func notifyWebhook(notify, httpURL, dnsAddr string) {
+	statusMtx.Lock()
+	if httpURL != "" {
+		status.URL = httpURL
+	}
+	if dnsAddr != "" {
+		status.DNS = dnsAddr
+	}
+	payload, _ := json.Marshal(status)
+	statusMtx.Unlock()
+
+	res, err := http.Post(notify, "application/json", bytes.NewReader(payload))
+	if err != nil {
+		log.Printf("failed to notify: %s", err)
+	} else {
+		res.Body.Close()
+	}
 }
