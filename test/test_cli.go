@@ -151,6 +151,7 @@ func formatKeyID(s string) string {
 }
 
 func (s *CLISuite) TestKey(t *c.C) {
+	panic("FAIL!")
 	app := s.newGitRepo(t, "empty")
 	t.Assert(app.flynn("create"), Succeeds)
 
