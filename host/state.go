@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -31,12 +32,13 @@ type State struct {
 
 	stateFilePath string
 	stateDB       *bolt.DB
+	dbMtx         sync.RWMutex
 
 	backend Backend
 }
 
 func NewState(id string, stateFilePath string) *State {
-	s := &State{
+	return &State{
 		id:            id,
 		stateFilePath: stateFilePath,
 		jobs:          make(map[string]*host.ActiveJob),
@@ -44,8 +46,6 @@ func NewState(id string, stateFilePath string) *State {
 		listeners:     make(map[string]map[chan host.Event]struct{}),
 		attachers:     make(map[string]map[chan struct{}]struct{}),
 	}
-	s.initializePersistence()
-	return s
 }
 
 /*
@@ -53,6 +53,12 @@ func NewState(id string, stateFilePath string) *State {
 	If the state save file is empty, nothing is loaded, and no error is returned.
 */
 func (s *State) Restore(backend Backend) (func(), error) {
+	s.dbMtx.RLock()
+	defer s.dbMtx.RUnlock()
+	if s.stateDB == nil {
+		return nil, ErrDBClosed
+	}
+
 	s.backend = backend
 
 	var resurrect []*host.ActiveJob
@@ -148,6 +154,12 @@ func (s *State) Restore(backend Backend) (func(), error) {
 // jobs with the resurrection flag before they are terminated by
 // backend cleanup.
 func (s *State) MarkForResurrection() error {
+	s.dbMtx.RLock()
+	defer s.dbMtx.RUnlock()
+	if s.stateDB == nil {
+		return nil
+	}
+
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 	return s.stateDB.Update(func(tx *bolt.Tx) error {
@@ -173,18 +185,22 @@ func (s *State) MarkForResurrection() error {
 	})
 }
 
-func (s *State) initializePersistence() {
+// OpenDB opens and initialises the persistence DB, if not already open.
+func (s *State) OpenDB() error {
+	s.dbMtx.Lock()
+	defer s.dbMtx.Unlock()
+
 	if s.stateDB != nil {
-		return
+		return nil
 	}
 
 	// open/initialize db
 	if err := os.MkdirAll(filepath.Dir(s.stateFilePath), 0755); err != nil {
-		panic(fmt.Errorf("could not not mkdir for db: %s", err))
+		return fmt.Errorf("could not not mkdir for db: %s", err)
 	}
 	stateDB, err := bolt.Open(s.stateFilePath, 0600, &bolt.Options{Timeout: 5 * time.Second})
 	if err != nil {
-		panic(fmt.Errorf("could not open db: %s", err))
+		return fmt.Errorf("could not open db: %s", err)
 	}
 	s.stateDB = stateDB
 	if err := s.stateDB.Update(func(tx *bolt.Tx) error {
@@ -194,8 +210,53 @@ func (s *State) initializePersistence() {
 		tx.CreateBucketIfNotExists([]byte("backend-global"))
 		return nil
 	}); err != nil {
-		panic(fmt.Errorf("could not initialize host persistence db: %s", err))
+		return fmt.Errorf("could not initialize host persistence db: %s", err)
 	}
+	return nil
+}
+
+// CloseDB closes the persistence DB.
+//
+// The DB mutex is locked to protect s.stateDB, but also prevents closing the
+// DB when it could still be needed to service API requests (see LockDB).
+func (s *State) CloseDB() error {
+	s.dbMtx.Lock()
+	defer s.dbMtx.Unlock()
+	if s.stateDB == nil {
+		return nil
+	}
+	if err := s.stateDB.Close(); err != nil {
+		return err
+	}
+	s.stateDB = nil
+	return nil
+}
+
+var ErrDBClosed = errors.New("state DB closed")
+
+// LockDB acquires a read lock on the DB mutex so that it cannot be closed
+// until the caller has finished performing actions which will lead to changes
+// being persisted to the DB.
+//
+// For example, running a job starts the job and then persists the change of
+// state, but if the DB is closed in that time then the state of the running
+// job will be lost.
+//
+// ErrDBClosed is returned if the DB is already closed so API requests will
+// fail before any actions are performed.
+func (s *State) LockDB() error {
+	s.dbMtx.RLock()
+	if s.stateDB == nil {
+		s.dbMtx.RUnlock()
+		return ErrDBClosed
+	}
+	return nil
+}
+
+// UnlockDB releases a read lock on the DB mutex, previously acquired by a call
+// to LockDB.
+func (s *State) UnlockDB() {
+	s.dbMtx.RUnlock()
 }
 
 func (s *State) persist(jobID string) {
@@ -256,15 +317,6 @@ func (s *State) persist(jobID string) {
 	}); err != nil {
 		panic(fmt.Errorf("could not persist to boltdb: %s", err))
 	}
-}
-
-/*
-	Close the DB that persists the host state.
-	This is not called in typical flow because there's no need to release this file descriptor,
-	but it is needed in testing so that bolt releases locks such that the file can be reopened.
-*/
-func (s *State) persistenceDBClose() error {
-	return s.stateDB.Close()
 }
 
 func (s *State) AddJob(j *host.Job, ip net.IP) {
@@ -351,7 +403,10 @@ func (s *State) SetStatusRunning(jobID string) {
 	job.StartedAt = time.Now().UTC()
 	job.Status = host.StatusRunning
 	s.sendEvent(job, "start")
-	s.persist(jobID)
+	if err := s.LockDB(); err == nil {
+		s.persist(jobID)
+		s.UnlockDB()
+	}
 }
 
 func (s *State) SetContainerStatusDone(containerID string, exitCode int) {
@@ -387,7 +442,10 @@ func (s *State) setStatusDone(job *host.ActiveJob, exitStatus int) {
 		job.Status = host.StatusCrashed
 	}
 	s.sendEvent(job, "stop")
-	s.persist(job.Job.ID)
+	if err := s.LockDB(); err == nil {
+		s.persist(job.Job.ID)
+		s.UnlockDB()
+	}
 }
 
 func (s *State) SetStatusFailed(jobID string, err error) {
@@ -403,7 +461,10 @@ func (s *State) SetStatusFailed(jobID string, err error) {
 	errStr := err.Error()
 	job.Error = &errStr
 	s.sendEvent(job, "error")
-	s.persist(jobID)
+	if err := s.LockDB(); err == nil {
+		s.persist(jobID)
+		s.UnlockDB()
+	}
 	go s.WaitAttach(jobID)
 }
 
