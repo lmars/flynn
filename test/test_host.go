@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	osexec "os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/flynn/flynn/discoverd/client"
 	"github.com/flynn/flynn/host/types"
 	"github.com/flynn/flynn/pkg/cluster"
+	"github.com/flynn/flynn/pkg/dialer"
 	"github.com/flynn/flynn/pkg/exec"
 	hh "github.com/flynn/flynn/pkg/httphelper"
 	"github.com/flynn/flynn/pkg/random"
@@ -289,4 +292,85 @@ func (s *HostSuite) TestResourceLimits(t *c.C) {
 	}
 
 	assertResourceLimits(t, out.String())
+}
+
+func (s *HostSuite) TestUpdate(t *c.C) {
+	dir := t.MkDir()
+	flynnHost := filepath.Join(dir, "flynn-host")
+	run(t, osexec.Command("cp", args.FlynnHost, flynnHost))
+
+	// start flynn-host
+	id := random.UUID()
+	var out bytes.Buffer
+	cmd := osexec.Command(
+		flynnHost,
+		"daemon",
+		"--http-port", "11113",
+		"--state", filepath.Join(dir, "host-state.bolt"),
+		"--id", id,
+		"--backend", "mock",
+		"--vol-provider", "mock",
+		"--volpath", filepath.Join(dir, "volumes"),
+		"--run-dir", dir,
+	)
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	defer func() {
+		debug(t, "*** flynn-host output ***")
+		debug(t, out.String())
+		debug(t, "*************************")
+	}()
+	t.Assert(cmd.Start(), c.IsNil)
+	defer cmd.Process.Kill()
+
+	httpClient := &http.Client{Transport: &http.Transport{Dial: dialer.Retry.Dial}}
+	client := cluster.NewHost(id, "http://127.0.0.1:11113", httpClient)
+
+	// exec a program which exits straight away
+	_, err := client.Update("/bin/true")
+	t.Assert(err, c.NotNil)
+	status, err := client.GetStatus()
+	t.Assert(err, c.IsNil)
+	t.Assert(status.ID, c.Equals, id)
+	t.Assert(status.PID, c.Equals, cmd.Process.Pid)
+
+	// exec a program which reads the control socket but then exits
+	_, err = client.Update("/bin/bash", "-c", "<&4; exit")
+	t.Assert(err, c.NotNil)
+	status, err = client.GetStatus()
+	t.Assert(err, c.IsNil)
+	t.Assert(status.ID, c.Equals, id)
+	t.Assert(status.PID, c.Equals, cmd.Process.Pid)
+
+	// exec flynn-host and check we get the status from the new daemon
+	pid, err := client.Update(
+		flynnHost,
+		"daemon",
+		"--http-port", "11113",
+		"--state", filepath.Join(dir, "host-state.bolt"),
+		"--id", id,
+		"--backend", "mock",
+		"--vol-provider", "mock",
+		"--volpath", filepath.Join(dir, "volumes"),
+		"--run-dir", dir,
+	)
+	t.Assert(err, c.IsNil)
+	defer syscall.Kill(pid, syscall.SIGKILL)
+
+	done := make(chan struct{})
+	go func() {
+		cmd.Process.Signal(syscall.SIGTERM)
+		syscall.Wait4(cmd.Process.Pid, nil, 0, nil)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("timed out waiting for flynn-host daemon to exit")
+	}
+
+	status, err = client.GetStatus()
+	t.Assert(err, c.IsNil)
+	t.Assert(status.ID, c.Equals, id)
+	t.Assert(status.PID, c.Equals, pid)
 }
