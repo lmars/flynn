@@ -322,7 +322,11 @@ func runDaemon(args *docopt.Args) {
 	if err != nil {
 		shutdown.Fatal(err)
 	}
-	shutdown.BeforeExit(func() { stopJobs() })
+	shutdown.BeforeExit(func() {
+		// close discoverd before stopping jobs so we can unregister first
+		discoverdManager.Close()
+		stopJobs()
+	})
 	shutdown.BeforeExit(func() {
 		if err := state.MarkForResurrection(); err != nil {
 			log.Print("error marking for resurrection", err)
