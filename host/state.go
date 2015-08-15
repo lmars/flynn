@@ -52,7 +52,7 @@ func NewState(id string, stateFilePath string) *State {
 	Restore prior state from the save location defined at construction time.
 	If the state save file is empty, nothing is loaded, and no error is returned.
 */
-func (s *State) Restore(backend Backend) (func(), error) {
+func (s *State) Restore(backend Backend, buffers host.LogBuffers) (func(), error) {
 	s.dbMtx.RLock()
 	defer s.dbMtx.RUnlock()
 	if s.stateDB == nil {
@@ -93,7 +93,7 @@ func (s *State) Restore(backend Backend) (func(), error) {
 			return err
 		}
 		backendGlobalBlob := backendGlobalBucket.Get([]byte("backend"))
-		if err := backend.UnmarshalState(s.jobs, backendJobsBlobs, backendGlobalBlob); err != nil {
+		if err := backend.UnmarshalState(s.jobs, backendJobsBlobs, backendGlobalBlob, buffers); err != nil {
 			return err
 		}
 

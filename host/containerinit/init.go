@@ -630,21 +630,27 @@ func containerInitApp(c *Config, logFile *os.File) error {
 			cmd.SysProcAttr.Setctty = true
 		}
 	} else {
-		log.Info("getting stdout pipe")
-		stdout, err := cmd.StdoutPipe()
+		// we use syscall.Socketpair (rather than cmd.StdoutPipe) to make it easier
+		// for flynn-host to do non-blocking I/O (via net.FileConn) so that no
+		// read(2) calls can succeed after closing the logs during an update.
+		log.Info("creating stdout pipe")
+		pair, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
 		if err != nil {
-			log.Error("error getting stdout pipe", "err", err)
+			log.Error("error creating stdout pipe", "err", err)
 			return err
 		}
-		init.stdout = stdout.(*os.File)
+		cmd.Stdout = os.NewFile(uintptr(pair[0]), "stdout")
+		init.stdout = os.NewFile(uintptr(pair[1]), "stdout")
 
-		log.Info("getting stderr pipe")
-		stderr, err := cmd.StderrPipe()
+		log.Info("creating stderr pipe")
+		pair, err = syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
 		if err != nil {
-			log.Error("error getting stderr pipe", "err", err)
+			log.Error("error creating stderr pipe", "err", err)
 			return err
 		}
-		init.stderr = stderr.(*os.File)
+		cmd.Stderr = os.NewFile(uintptr(pair[0]), "stderr")
+		init.stderr = os.NewFile(uintptr(pair[1]), "stderr")
+
 		if c.OpenStdin {
 			// Can't use cmd.StdinPipe() here, since in Go 1.2 it
 			// returns an io.WriteCloser with the underlying object
@@ -726,12 +732,15 @@ func containerInitApp(c *Config, logFile *os.File) error {
 // This code is run INSIDE the container and is responsible for setting
 // up the environment before running the actual process
 func Main() {
-	logRd, logWr, err := os.Pipe()
+	pair, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
 	if err != nil {
 		os.Exit(70)
 	}
+	logR := os.NewFile(uintptr(pair[0]), "log")
+	logW := os.NewFile(uintptr(pair[1]), "log")
+
 	logger = log15.New("app", "containerinit")
-	logger.SetHandler(log15.StreamHandler(logWr, log15.LogfmtFormat()))
+	logger.SetHandler(log15.StreamHandler(logW, log15.LogfmtFormat()))
 
 	config := &Config{}
 	data, err := ioutil.ReadFile("/.containerconfig")
@@ -745,7 +754,7 @@ func Main() {
 	// Propagate the plugin-specific container env variable
 	config.Env["container"] = os.Getenv("container")
 
-	if err := containerInitApp(config, logRd); err != nil {
+	if err := containerInitApp(config, logR); err != nil {
 		os.Exit(70)
 	}
 }
