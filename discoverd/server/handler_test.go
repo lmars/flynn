@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
@@ -99,14 +100,14 @@ func TestHandler_PutService_ErrInvalidJSON(t *testing.T) {
 // Ensure the handler redirects when the store is not the leader.
 func TestHandler_PutService_ErrNotLeader(t *testing.T) {
 	h := NewHandler()
-	h.Store.LeaderFn = func() string { return "host1" }
+	h.Store.LeaderFn = func() string { return "host1:1110" }
 	h.Store.AddServiceFn = func(service string, config *discoverd.ServiceConfig) error { return server.ErrNotLeader }
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, MustNewHTTPRequest("PUT", "https://host0/services/abc", strings.NewReader(`{"leader_type":"manual"}`)))
+	h.ServeHTTP(w, MustNewHTTPRequest("PUT", "http://host0:1111/services/abc", strings.NewReader(`{"leader_type":"manual"}`)))
 	if w.Code != http.StatusTemporaryRedirect {
 		t.Fatalf("unexpected status code: %d", w.Code)
-	} else if loc := w.Header().Get("Location"); loc != `https://host1/services/abc` {
+	} else if loc := w.Header().Get("Location"); loc != `http://host1:1111/services/abc` {
 		t.Fatalf("unexpected Location header: %s", loc)
 	}
 }
@@ -719,10 +720,19 @@ func NewHandler() *Handler {
 
 // MustNewHTTPRequest returns a new HTTP request. Panic on error.
 func MustNewHTTPRequest(method, urlStr string, body io.Reader) *http.Request {
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		panic(err)
+	}
+
 	req, err := http.NewRequest(method, urlStr, body)
 	if err != nil {
 		panic(err)
 	}
+
+	// Set host
+	req.Host = u.Host
+
 	return req
 }
 

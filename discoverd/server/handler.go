@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"strings"
 
@@ -358,8 +359,19 @@ func (h *Handler) redirectToLeader(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Redirect request to leader node.
+	// Create the redirection URL.
 	u := *r.URL
-	u.Host = leader
+	if r.TLS == nil {
+		u.Scheme = "http"
+	} else {
+		u.Scheme = "https"
+	}
+
+	// Assume the leader port is the same as this handler.
+	host, _, _ := net.SplitHostPort(leader)
+	_, port, _ := net.SplitHostPort(r.Host)
+	u.Host = net.JoinHostPort(host, port)
+
+	// Redirect request to leader node.
 	http.Redirect(w, r, u.String(), http.StatusTemporaryRedirect)
 }
