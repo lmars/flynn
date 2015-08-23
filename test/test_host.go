@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	osexec "os/exec"
@@ -372,7 +373,20 @@ func (s *HostSuite) TestUpdate(t *c.C) {
 		t.Fatal("timed out waiting for flynn-host daemon to exit")
 	}
 
-	status, err = client.GetStatus()
+	// client.GetStatus intermittently returns io.EOF right after the update. We
+	// don't currently understand why (likely due to the way the listener is
+	// passed around), so for now just retry the request.
+	//
+	// TODO(lmars): figure out why and remove this loop.
+	delay := 100 * time.Millisecond
+	for start := time.Now(); time.Since(start) < 10*time.Second; time.Sleep(delay) {
+		status, err = client.GetStatus()
+		if err == io.EOF {
+			debugf(t, "got io.EOF from flynn-host, trying again in %s", delay)
+			continue
+		}
+		break
+	}
 	t.Assert(err, c.IsNil)
 	t.Assert(status.ID, c.Equals, id)
 	t.Assert(status.PID, c.Equals, pid)
