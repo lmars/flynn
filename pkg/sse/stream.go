@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"sync"
 	"time"
 
 	log "github.com/flynn/flynn/Godeps/_workspace/src/gopkg.in/inconshreveable/log15.v2"
@@ -16,6 +17,7 @@ type identifier interface {
 }
 
 type Stream struct {
+	mu        sync.Mutex
 	w         *writer
 	rw        http.ResponseWriter
 	fw        hh.FlushWriter
@@ -143,6 +145,9 @@ func (s *Stream) Error(err error) {
 }
 
 func (s *Stream) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if !s.closed {
 		s.closed = true
 		close(s.closeChan)
