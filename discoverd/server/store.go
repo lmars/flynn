@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -290,7 +291,7 @@ func (s *Store) applyRemoveServiceCommand(cmd []byte) error {
 	delete(s.data.Services, c.Service)
 
 	// Broadcast EventKindDown for all instances on the service.
-	for _, inst := range s.data.Instances[c.Service] {
+	for _, inst := range s.data.ServiceInstances(c.Service) {
 		s.broadcast(&discoverd.Event{
 			Service:  c.Service,
 			Kind:     discoverd.EventKindDown,
@@ -334,7 +335,7 @@ func (s *Store) AddInstance(service string, inst *discoverd.Instance) error {
 	return nil
 }
 
-func (s *Store) applyAddInstanceCommand(cmd []byte) error {
+func (s *Store) applyAddInstanceCommand(cmd []byte, index uint64) error {
 	var c addInstanceCommand
 	if err := json.Unmarshal(cmd, &c); err != nil {
 		return err
@@ -352,6 +353,9 @@ func (s *Store) applyAddInstanceCommand(cmd []byte) error {
 
 	// Check if the instance already exists.
 	_, existing := s.data.Instances[c.Service][c.Instance.ID]
+	if !existing {
+		c.Instance.Index = index
+	}
 
 	// Check if the existing instance is being updated.
 	updating := (existing && !c.Instance.Equal(s.data.Instances[c.Service][c.Instance.ID].Instance))
@@ -655,7 +659,7 @@ func (s *Store) Apply(l *raft.Log) interface{} {
 	case setLeaderCommandType:
 		return s.applySetLeaderCommand(cmd)
 	case addInstanceCommandType:
-		return s.applyAddInstanceCommand(cmd)
+		return s.applyAddInstanceCommand(cmd, l.Index)
 	case removeInstanceCommandType:
 		return s.applyRemoveInstanceCommand(cmd)
 	default:
@@ -753,6 +757,8 @@ func (s *Store) Subscribe(service string, sendCurrent bool, kinds discoverd.Even
 func (s *Store) broadcast(event *discoverd.Event) {
 	// Retrieve list of subscribers for the service.
 	l, ok := s.subscribers[event.Service]
+
+	fmt.Fprintf(os.Stderr, "discoverd: broadcast: service=%s, kind=%v, no-subscribers=%v\n", event.Service, event.Kind, !ok)
 	if !ok {
 		return
 	}
@@ -803,6 +809,13 @@ type instanceEntry struct {
 	Instance   *discoverd.Instance
 	ExpiryTime time.Time
 }
+
+// instanceEntries represents a sortable list of entries by index.
+type instanceEntries []instanceEntry
+
+func (a instanceEntries) Len() int           { return len(a) }
+func (a instanceEntries) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a instanceEntries) Less(i, j int) bool { return a[i].Instance.Index < a[j].Instance.Index }
 
 // instanceSlice represents a sortable list of instances by id.
 type instanceSlice []*discoverd.Instance
@@ -871,6 +884,17 @@ func newRaftData() *raftData {
 		Leaders:   make(map[string]string),
 		Instances: make(map[string]map[string]instanceEntry),
 	}
+}
+
+// ServiceInstances returns the instances of a service in sorted order.
+func (d *raftData) ServiceInstances(service string) []instanceEntry {
+	a := make([]instanceEntry, 0, len(d.Instances[service]))
+	for _, entry := range d.Instances[service] {
+		a = append(a, entry)
+	}
+
+	sort.Sort(instanceEntries(a))
+	return a
 }
 
 // subscription represents a listener to one or more kinds of events.

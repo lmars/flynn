@@ -135,10 +135,10 @@ func TestStore_RemoveService_Events(t *testing.T) {
 	}
 
 	// Verify two down events were received.
-	if e := <-ch; !reflect.DeepEqual(e, &discoverd.Event{Service: "service0", Kind: discoverd.EventKindDown, Instance: &discoverd.Instance{ID: "inst0"}}) {
+	if e := <-ch; !reflect.DeepEqual(e, &discoverd.Event{Service: "service0", Kind: discoverd.EventKindDown, Instance: &discoverd.Instance{ID: "inst0", Index: 3}}) {
 		t.Fatalf("unexpected event(0): %#v", e)
 	}
-	if e := <-ch; !reflect.DeepEqual(e, &discoverd.Event{Service: "service0", Kind: discoverd.EventKindDown, Instance: &discoverd.Instance{ID: "inst1"}}) {
+	if e := <-ch; !reflect.DeepEqual(e, &discoverd.Event{Service: "service0", Kind: discoverd.EventKindDown, Instance: &discoverd.Instance{ID: "inst1", Index: 4}}) {
 		t.Fatalf("unexpected event(1): %#v", e)
 	}
 }
@@ -169,8 +169,8 @@ func TestStore_AddInstance(t *testing.T) {
 
 	// Verify that the instances exist.
 	if a := s.Instances("service0"); !reflect.DeepEqual(a, []*discoverd.Instance{
-		{ID: "inst0"},
-		{ID: "inst1"},
+		{ID: "inst0", Index: 3},
+		{ID: "inst1", Index: 4},
 	}) {
 		t.Fatalf("unexpected instances: %#v", a)
 	}
@@ -206,7 +206,7 @@ func TestStore_AddInstance_UpEvent(t *testing.T) {
 	if e := <-ch; !reflect.DeepEqual(e, &discoverd.Event{
 		Service:  "service0",
 		Kind:     discoverd.EventKindUp,
-		Instance: &discoverd.Instance{ID: "inst0"},
+		Instance: &discoverd.Instance{ID: "inst0", Index: 3},
 	}) {
 		t.Fatalf("unexpected event: %#v", e)
 	}
@@ -262,7 +262,7 @@ func TestStore_AddInstance_LeaderEvent(t *testing.T) {
 	if e := <-ch; !reflect.DeepEqual(e, &discoverd.Event{
 		Service:  "service0",
 		Kind:     discoverd.EventKindLeader,
-		Instance: &discoverd.Instance{ID: "inst0"},
+		Instance: &discoverd.Instance{ID: "inst0", Index: 3},
 	}) {
 		t.Fatalf("unexpected event: %#v", e)
 	}
@@ -289,8 +289,8 @@ func TestStore_RemoveInstance(t *testing.T) {
 
 	// Verify the remaining instances.
 	if a := s.Instances("service0"); !reflect.DeepEqual(a, []*discoverd.Instance{
-		{ID: "inst0"},
-		{ID: "inst2"},
+		{ID: "inst0", Index: 3},
+		{ID: "inst2", Index: 5},
 	}) {
 		t.Fatalf("unexpected instances: %#v", a)
 	}
@@ -328,7 +328,7 @@ func TestStore_RemoveInstance_DownEvent(t *testing.T) {
 	if e := <-ch; !reflect.DeepEqual(e, &discoverd.Event{
 		Service:  "service0",
 		Kind:     discoverd.EventKindDown,
-		Instance: &discoverd.Instance{ID: "inst0"},
+		Instance: &discoverd.Instance{ID: "inst0", Index: 3},
 	}) {
 		t.Fatalf("unexpected event: %#v", e)
 	}
@@ -359,7 +359,7 @@ func TestStore_RemoveInstance_LeaderEvent(t *testing.T) {
 	if e := <-ch; !reflect.DeepEqual(e, &discoverd.Event{
 		Service:  "service0",
 		Kind:     discoverd.EventKindLeader,
-		Instance: &discoverd.Instance{ID: "inst1"},
+		Instance: &discoverd.Instance{ID: "inst1", Index: 4},
 	}) {
 		t.Fatalf("unexpected event: %#v", e)
 	}
@@ -478,7 +478,7 @@ func TestStore_SetLeader(t *testing.T) {
 	}
 
 	// Verify that the leader was set.
-	if inst := s.ServiceLeader("service0"); !reflect.DeepEqual(inst, &discoverd.Instance{ID: "inst1"}) {
+	if inst := s.ServiceLeader("service0"); !reflect.DeepEqual(inst, &discoverd.Instance{ID: "inst1", Index: 4}) {
 		t.Fatalf("unexpected leader: %#v", inst)
 	}
 }
