@@ -57,6 +57,7 @@ Commands:
 	provider  manage resource providers
 	resource  provision a new resource
 	release   add a docker image release
+	deploys   list deployments
 	export    export app data
 	import    create app from exported data
 	version   show flynn version
