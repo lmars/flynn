@@ -223,6 +223,7 @@ func (s *SchedulerSuite) TestOmniJobs(t *c.C) {
 		t.Skip("cannot boot new hosts")
 	}
 
+	defer t.Fatal("FAIL!")
 	app, release := s.createApp(t)
 
 	watcher, err := s.controllerClient(t).WatchJobEvents(app.ID, release.ID)
