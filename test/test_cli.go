@@ -756,13 +756,13 @@ func (s *CLISuite) TestExportImport(t *c.C) {
 	t.Assert(err, c.IsNil)
 }
 
-func (s *CLISuite) TestDeploy(t *c.C) {
-	// create and push app
-	r := s.newGitRepo(t, "http")
-	t.Assert(r.flynn("create", "deploy-"+random.String(8)), Succeeds)
-	t.Assert(r.git("push", "flynn", "master"), Succeeds)
-
-	deploy := r.flynn("deployment")
-	t.Assert(deploy, Succeeds)
-	t.Assert(deploy.Output, Matches, "complete")
-}
+//func (s *CLISuite) TestDeploy(t *c.C) {
+//	// create and push app
+//	r := s.newGitRepo(t, "http")
+//	t.Assert(r.flynn("create", "deploy-"+random.String(8)), Succeeds)
+//	t.Assert(r.git("push", "flynn", "master"), Succeeds)
+//
+//	deploy := r.flynn("deployment")
+//	t.Assert(deploy, Succeeds)
+//	t.Assert(deploy.Output, Matches, "complete")
+//}
