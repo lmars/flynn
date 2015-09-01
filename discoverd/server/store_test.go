@@ -235,7 +235,7 @@ func TestStore_AddInstance_UpdateEvent(t *testing.T) {
 	if e := <-ch; !reflect.DeepEqual(e, &discoverd.Event{
 		Service:  "service0",
 		Kind:     discoverd.EventKindUpdate,
-		Instance: &discoverd.Instance{ID: "inst0", Proto: "https"},
+		Instance: &discoverd.Instance{ID: "inst0", Index: 3, Proto: "https"},
 	}) {
 		t.Fatalf("unexpected event: %#v", e)
 	}

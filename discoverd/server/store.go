@@ -320,10 +320,14 @@ func (s *Store) instances(service string) []*discoverd.Instance {
 }
 
 func (s *Store) AddInstance(service string, inst *discoverd.Instance) error {
+	now := s.Now()
+
 	// Serialize command.
 	cmd, err := json.Marshal(&addInstanceCommand{
-		Service:  service,
-		Instance: inst,
+		Service:    service,
+		Instance:   inst,
+		ExpiryTime: now.Add(s.InstanceTTL),
+		Now:        now,
 	})
 	if err != nil {
 		return err
@@ -352,8 +356,12 @@ func (s *Store) applyAddInstanceCommand(cmd []byte, index uint64) error {
 	}
 
 	// Check if the instance already exists.
-	_, existing := s.data.Instances[c.Service][c.Instance.ID]
-	if !existing {
+	// If it does then copy the original index.
+	// Otherwise set the index to the current log entry's index.
+	prev, existing := s.data.Instances[c.Service][c.Instance.ID]
+	if existing {
+		c.Instance.Index = prev.Instance.Index
+	} else {
 		c.Instance.Index = index
 	}
 
@@ -363,7 +371,7 @@ func (s *Store) applyAddInstanceCommand(cmd []byte, index uint64) error {
 	// Update entry.
 	s.data.Instances[c.Service][c.Instance.ID] = instanceEntry{
 		Instance:   c.Instance,
-		ExpiryTime: s.Now().Add(s.InstanceTTL),
+		ExpiryTime: c.ExpiryTime,
 	}
 
 	// Broadcast "up" event if new instance.
@@ -382,7 +390,7 @@ func (s *Store) applyAddInstanceCommand(cmd []byte, index uint64) error {
 	}
 
 	// Update service leader, if necessary.
-	s.invalidateServiceLeader(c.Service)
+	s.invalidateServiceLeader(c.Service, c.Now)
 
 	return nil
 }
@@ -392,6 +400,7 @@ func (s *Store) RemoveInstance(service, id string) error {
 	cmd, err := json.Marshal(&removeInstanceCommand{
 		Service: service,
 		ID:      id,
+		Now:     s.Now(),
 	})
 	if err != nil {
 		return err
@@ -428,7 +437,7 @@ func (s *Store) applyRemoveInstanceCommand(cmd []byte) error {
 	}
 
 	// Invalidate service leadership.
-	s.invalidateServiceLeader(c.Service)
+	s.invalidateServiceLeader(c.Service, c.Now)
 
 	return nil
 }
@@ -530,6 +539,8 @@ func (s *Store) applySetLeaderCommand(cmd []byte) error {
 
 	// Notify new leadership.
 	if entry, ok := s.data.Instances[c.Service][c.ID]; ok && entry.Instance != nil {
+		log.Printf("XXX> SET LEADER: service=%v, inst=%v", c.Service, c.ID)
+
 		s.broadcast(&discoverd.Event{
 			Service:  c.Service,
 			Kind:     discoverd.EventKindLeader,
@@ -564,7 +575,7 @@ func (s *Store) serviceLeader(service string) *discoverd.Instance {
 }
 
 // invalidateServiceLeader updates the current leader of service.
-func (s *Store) invalidateServiceLeader(service string) {
+func (s *Store) invalidateServiceLeader(service string, now time.Time) {
 	// Retrieve service config.
 	c := s.data.Services[service]
 
@@ -576,12 +587,13 @@ func (s *Store) invalidateServiceLeader(service string) {
 	// Retrieve current leader ID.
 	prevLeaderID := s.data.Leaders[service]
 
-	// Retrieve the current time.
-	now := s.Now()
+	log.Printf("XXX> INVALIDATE.0: service=%v, prev=%v", service, prevLeaderID)
 
 	// Find the oldest, non-expired instance.
 	var leader *discoverd.Instance
 	for _, entry := range s.data.Instances[service] {
+		log.Printf("XXX> INVALIDATE.1: entry=%v, idx=%v, expiry=%v, now=%v, expired=%v", entry.Instance.ID, entry.Instance.Index, entry.ExpiryTime, now, entry.ExpiryTime.Before(now))
+
 		// Ignore expired entries.
 		if entry.ExpiryTime.Before(now) {
 			continue
@@ -589,6 +601,7 @@ func (s *Store) invalidateServiceLeader(service string) {
 
 		// Set leader if there is no leader or if the index is older.
 		if leader == nil || entry.Instance.Index < leader.Index {
+			log.Printf("XXX> INVALIDATE.2: entry=%v (NEW LEADER)", entry.Instance.ID)
 			leader = entry.Instance
 		}
 	}
@@ -599,6 +612,8 @@ func (s *Store) invalidateServiceLeader(service string) {
 		leaderID = leader.ID
 	}
 
+	log.Printf("XXX> INVALIDATE.3: service=%v, entry=%v (SET LEADER)", service, leaderID)
+
 	// Set leader.
 	s.data.Leaders[service] = leaderID
 
@@ -607,6 +622,10 @@ func (s *Store) invalidateServiceLeader(service string) {
 		var inst *discoverd.Instance
 		if s.data.Instances[service] != nil && s.data.Instances[service][leaderID].Instance != nil {
 			inst = s.data.Instances[service][leaderID].Instance
+		}
+
+		if inst != nil {
+			log.Printf("XXX> INVALIDATE.4: service=%v, entry=%v (BROADCAST LEADER)", service, inst.ID)
 		}
 
 		s.broadcast(&discoverd.Event{
@@ -859,14 +878,17 @@ type setLeaderCommand struct {
 
 // addInstanceCommand represents a command object to add an instance.
 type addInstanceCommand struct {
-	Service  string
-	Instance *discoverd.Instance
+	Service    string
+	Instance   *discoverd.Instance
+	ExpiryTime time.Time
+	Now        time.Time // deterministic time for leader invalidation
 }
 
 // removeInstanceCommand represents a command object to remove an instance.
 type removeInstanceCommand struct {
 	Service string
 	ID      string
+	Now     time.Time // deterministic time for leader invalidation
 }
 
 // raftData represents the root data structure for the raft store.
