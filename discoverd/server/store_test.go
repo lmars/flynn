@@ -168,7 +168,9 @@ func TestStore_AddInstance(t *testing.T) {
 	}
 
 	// Verify that the instances exist.
-	if a := s.Instances("service0"); !reflect.DeepEqual(a, []*discoverd.Instance{
+	if a, err := s.Instances("service0"); err != nil {
+		t.Fatal(err)
+	} else if !reflect.DeepEqual(a, []*discoverd.Instance{
 		{ID: "inst0", Index: 3},
 		{ID: "inst1", Index: 4},
 	}) {
@@ -288,7 +290,9 @@ func TestStore_RemoveInstance(t *testing.T) {
 	}
 
 	// Verify the remaining instances.
-	if a := s.Instances("service0"); !reflect.DeepEqual(a, []*discoverd.Instance{
+	if a, err := s.Instances("service0"); err != nil {
+		t.Fatal(err)
+	} else if !reflect.DeepEqual(a, []*discoverd.Instance{
 		{ID: "inst0", Index: 3},
 		{ID: "inst2", Index: 5},
 	}) {
@@ -478,7 +482,9 @@ func TestStore_SetLeader(t *testing.T) {
 	}
 
 	// Verify that the leader was set.
-	if inst := s.ServiceLeader("service0"); !reflect.DeepEqual(inst, &discoverd.Instance{ID: "inst1", Index: 4}) {
+	if inst, err := s.ServiceLeader("service0"); err != nil {
+		t.Fatal(err)
+	} else if !reflect.DeepEqual(inst, &discoverd.Instance{ID: "inst1", Index: 4}) {
 		t.Fatalf("unexpected leader: %#v", inst)
 	}
 }
@@ -489,7 +495,9 @@ func TestStore_SetLeader_NoService(t *testing.T) {
 	defer s.Close()
 	if err := s.SetServiceLeader("service0", "inst1"); err != nil {
 		t.Fatal(err)
-	} else if inst := s.ServiceLeader("service0"); inst != nil {
+	} else if inst, err := s.ServiceLeader("service0"); err != nil {
+		t.Fatal(err)
+	} else if inst != nil {
 		t.Fatalf("unexpected leader: %#v", inst)
 	}
 }
@@ -504,7 +512,9 @@ func TestStore_SetLeader_NoInstance(t *testing.T) {
 
 	if err := s.SetServiceLeader("service0", "inst1"); err != nil {
 		t.Fatal(err)
-	} else if inst := s.ServiceLeader("service0"); inst != nil {
+	} else if inst, err := s.ServiceLeader("service0"); err != nil {
+		t.Fatal(err)
+	} else if inst != nil {
 		t.Fatalf("unexpected leader: %#v", inst)
 	}
 }
@@ -591,10 +601,10 @@ type MockStore struct {
 	ServiceMetaFn      func(service string) *discoverd.ServiceMeta
 	AddInstanceFn      func(service string, inst *discoverd.Instance) error
 	RemoveInstanceFn   func(service, id string) error
-	InstancesFn        func(service string) []*discoverd.Instance
+	InstancesFn        func(service string) ([]*discoverd.Instance, error)
 	ConfigFn           func(service string) *discoverd.ServiceConfig
 	SetServiceLeaderFn func(service, id string) error
-	ServiceLeaderFn    func(service string) *discoverd.Instance
+	ServiceLeaderFn    func(service string) (*discoverd.Instance, error)
 	SubscribeFn        func(service string, sendCurrent bool, kinds discoverd.EventKind, ch chan *discoverd.Event) stream.Stream
 }
 
@@ -627,7 +637,7 @@ func (s *MockStore) RemoveInstance(service, id string) error {
 	return s.RemoveInstanceFn(service, id)
 }
 
-func (s *MockStore) Instances(service string) []*discoverd.Instance {
+func (s *MockStore) Instances(service string) ([]*discoverd.Instance, error) {
 	return s.InstancesFn(service)
 }
 
@@ -639,7 +649,7 @@ func (s *MockStore) SetServiceLeader(service, id string) error {
 	return s.SetServiceLeaderFn(service, id)
 }
 
-func (s *MockStore) ServiceLeader(service string) *discoverd.Instance {
+func (s *MockStore) ServiceLeader(service string) (*discoverd.Instance, error) {
 	return s.ServiceLeaderFn(service)
 }
 

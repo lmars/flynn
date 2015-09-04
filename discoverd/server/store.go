@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net"
 	"os"
 	"path/filepath"
@@ -303,10 +304,10 @@ func (s *Store) applyRemoveServiceCommand(cmd []byte) error {
 }
 
 // Instances returns a list of instances for service.
-func (s *Store) Instances(service string) []*discoverd.Instance {
+func (s *Store) Instances(service string) ([]*discoverd.Instance, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.instances(service)
+	return s.instances(service), nil
 }
 
 func (s *Store) instances(service string) []*discoverd.Instance {
@@ -551,10 +552,10 @@ func (s *Store) applySetLeaderCommand(cmd []byte) error {
 	return nil
 }
 
-func (s *Store) ServiceLeader(service string) *discoverd.Instance {
+func (s *Store) ServiceLeader(service string) (*discoverd.Instance, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.serviceLeader(service)
+	return s.serviceLeader(service), nil
 }
 
 func (s *Store) serviceLeader(service string) *discoverd.Instance {
@@ -1006,4 +1007,24 @@ func ValidServiceName(service string) error {
 	}
 
 	return nil
+}
+
+// ProxyStore implements some of the Store methods as proxy calls.
+// Only the subset of methods required for DNSServer.Store are implemented.
+type ProxyStore struct {
+	Peers []string
+}
+
+// Instances returns a list of instances for a service.
+func (s *ProxyStore) Instances(service string) ([]*discoverd.Instance, error) {
+	host := s.Peers[rand.Intn(len(s.Peers))]
+	client := discoverd.NewClientWithURL("http://" + host)
+	return client.Service(service).Instances()
+}
+
+// ServiceLeader returns the leader for a service.
+func (s *ProxyStore) ServiceLeader(service string) (*discoverd.Instance, error) {
+	host := s.Peers[rand.Intn(len(s.Peers))]
+	client := discoverd.NewClientWithURL("http://" + host)
+	return client.Service(service).Leader()
 }

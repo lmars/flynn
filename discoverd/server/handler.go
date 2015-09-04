@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"math/rand"
 	"net"
 	"net/http"
 	"strings"
@@ -57,10 +58,10 @@ type Handler struct {
 		ServiceMeta(service string) *discoverd.ServiceMeta
 		AddInstance(service string, inst *discoverd.Instance) error
 		RemoveInstance(service, id string) error
-		Instances(service string) []*discoverd.Instance
+		Instances(service string) ([]*discoverd.Instance, error)
 		Config(service string) *discoverd.ServiceConfig
 		SetServiceLeader(service, id string) error
-		ServiceLeader(service string) *discoverd.Instance
+		ServiceLeader(service string) (*discoverd.Instance, error)
 		Subscribe(service string, sendCurrent bool, kinds discoverd.EventKind, ch chan *discoverd.Event) stream.Stream
 
 		AddPeer(peer string) error
@@ -232,8 +233,11 @@ func (h *Handler) serveGetInstances(w http.ResponseWriter, r *http.Request, para
 	}
 
 	// Otherwise read instances from the store.
-	instances := h.Store.Instances(params.ByName("service"))
-	if instances == nil {
+	instances, err := h.Store.Instances(params.ByName("service"))
+	if err != nil {
+		hh.Error(w, err)
+		return
+	} else if instances == nil {
 		hh.ObjectNotFoundError(w, "service not found")
 		return
 	}
@@ -281,8 +285,11 @@ func (h *Handler) serveGetLeader(w http.ResponseWriter, r *http.Request, params 
 
 	// Otherwise retrieve the current leader.
 	service := params.ByName("service")
-	leader := h.Store.ServiceLeader(service)
-	if leader == nil {
+	leader, err := h.Store.ServiceLeader(service)
+	if err != nil {
+		hh.Error(w, err)
+		return
+	} else if leader == nil {
 		hh.ObjectNotFoundError(w, "no leader found")
 		return
 	}
@@ -359,6 +366,21 @@ func (h *Handler) redirectToLeader(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	redirectToHost(w, r, leader)
+}
+
+// ProxyHandler proxies all requests to a random peer.
+type ProxyHandler struct {
+	Peers []string
+}
+
+// ServeHTTP redirects all requests to a random peer.
+func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	host := h.Peers[rand.Intn(len(h.Peers))]
+	redirectToHost(w, r, host)
+}
+
+func redirectToHost(w http.ResponseWriter, r *http.Request, hostport string) {
 	// Create the redirection URL.
 	u := *r.URL
 	if r.TLS == nil {
@@ -367,11 +389,11 @@ func (h *Handler) redirectToLeader(w http.ResponseWriter, r *http.Request) {
 		u.Scheme = "https"
 	}
 
-	// Assume the leader port is the same as this handler.
-	host, _, _ := net.SplitHostPort(leader)
+	// Assume the host port is the same as this handler.
+	host, _, _ := net.SplitHostPort(hostport)
 	_, port, _ := net.SplitHostPort(r.Host)
 	u.Host = net.JoinHostPort(host, port)
 
-	// Redirect request to leader node.
+	// Redirect request to new host.
 	http.Redirect(w, r, u.String(), http.StatusTemporaryRedirect)
 }

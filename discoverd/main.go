@@ -76,15 +76,26 @@ func (m *Main) Run(args ...string) error {
 		return err
 	}
 
-	// Open store & servers.
-	if err := m.openStore(opt.DataDir, opt.RaftAddr, MergeHostPort(opt.Host, opt.RaftAddr), opt.Peers); err != nil {
+	// Set up advertised address and default peer set.
+	advertiseAddr := MergeHostPort(opt.Host, opt.RaftAddr)
+	if len(opt.Peers) == 0 {
+		opt.Peers = []string{advertiseAddr}
+	}
+
+	// Open store if we are not proxying.
+	if err := m.openStore(opt.DataDir, opt.RaftAddr, advertiseAddr, opt.Peers); err != nil {
 		return fmt.Errorf("Failed to open store: %s", err)
+	}
+
+	// Notify user that we're proxying if the store wasn't initialized.
+	if m.store == nil {
+		fmt.Fprintln(m.Stderr, "advertised address not in peer set, joining as proxy")
 	}
 
 	// If we have a DNS address, start a DNS server right away, otherwise
 	// wait for the host network to come up and then start a DNS server.
 	if opt.DNSAddr != "" {
-		if err := m.openDNSServer(opt.DNSAddr, opt.Recursors); err != nil {
+		if err := m.openDNSServer(opt.DNSAddr, opt.Recursors, opt.Peers); err != nil {
 			return fmt.Errorf("Failed to start DNS server: %s", err)
 		}
 		m.logger.Printf("discoverd listening for DNS on %s", opt.DNSAddr)
@@ -105,7 +116,7 @@ func (m *Main) Run(args ...string) error {
 			}
 			addr := net.JoinHostPort(ip.String(), "53")
 
-			if err := m.openDNSServer(addr, status.Network.Resolvers); err != nil {
+			if err := m.openDNSServer(addr, status.Network.Resolvers, opt.Peers); err != nil {
 				log.Fatalf("Failed to start DNS server: %s", err)
 			}
 			m.logger.Printf("discoverd listening for DNS on %s", opt.DNSAddr)
@@ -117,7 +128,7 @@ func (m *Main) Run(args ...string) error {
 		}()
 	}
 
-	if err := m.openHTTPServer(opt.HTTPAddr); err != nil {
+	if err := m.openHTTPServer(opt.HTTPAddr, opt.Peers); err != nil {
 		return fmt.Errorf("Failed to start HTTP server: %s", err)
 	}
 
@@ -162,6 +173,17 @@ func (m *Main) Close() error {
 
 // openStore initializes and opens the store.
 func (m *Main) openStore(path, bindAddress, advertise string, peers []string) error {
+	// If the advertised address is not in the peer list then we should proxy.
+	proxying := true
+	for _, addr := range peers {
+		if addr == advertise {
+			proxying = false
+		}
+	}
+	if proxying {
+		return nil
+	}
+
 	// Resolve advertised address.
 	addr, err := net.ResolveTCPAddr("tcp", advertise)
 	if err != nil {
@@ -194,13 +216,20 @@ func (m *Main) openStore(path, bindAddress, advertise string, peers []string) er
 
 // openDNSServer initializes and opens the DNS server.
 // The store must already be open.
-func (m *Main) openDNSServer(addr string, recursors []string) error {
+func (m *Main) openDNSServer(addr string, recursors, peers []string) error {
 	s := &server.DNSServer{
 		UDPAddr:   addr,
 		TCPAddr:   addr,
 		Recursors: recursors,
-		Store:     m.store,
 	}
+
+	// If store is available then attach it. Otherwise use a proxy.
+	if m.store != nil {
+		s.Store = m.store
+	} else {
+		s.Store = &server.ProxyStore{Peers: peers}
+	}
+
 	if err := s.ListenAndServe(); err != nil {
 		return err
 	}
@@ -210,7 +239,7 @@ func (m *Main) openDNSServer(addr string, recursors []string) error {
 
 // openHTTPServer initializes and opens the HTTP server.
 // The store must already be open.
-func (m *Main) openHTTPServer(addr string) error {
+func (m *Main) openHTTPServer(addr string, peers []string) error {
 	// Open HTTP API.
 	ln, err := net.Listen("tcp4", addr)
 	if err != nil {
@@ -218,7 +247,13 @@ func (m *Main) openHTTPServer(addr string) error {
 	}
 	m.httpListener = ln
 
-	// Run HTTP server.
+	// If we have no store then simply start a proxy handler.
+	if m.store == nil {
+		go http.Serve(m.httpListener, &server.ProxyHandler{Peers: peers})
+		return nil
+	}
+
+	// Otherwise initialize and start handler.
 	h := server.NewHandler()
 	h.Store = m.store
 	go http.Serve(m.httpListener, h)

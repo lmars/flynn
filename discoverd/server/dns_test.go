@@ -25,8 +25,8 @@ var _ = Suite(&DNSSuite{})
 func (s *DNSSuite) SetUpTest(c *C) {
 	s.srv = s.newServer(c, []string{"8.8.8.8", "8.8.4.4"})
 	s.srv.Store = &s.store
-	s.store.InstancesFn = func(service string) []*discoverd.Instance { return nil }
-	s.store.ServiceLeaderFn = func(service string) *discoverd.Instance { return nil }
+	s.store.InstancesFn = func(service string) ([]*discoverd.Instance, error) { return nil, nil }
+	s.store.ServiceLeaderFn = func(service string) (*discoverd.Instance, error) { return nil, nil }
 	// s.store.AddService("a", DefaultServiceConfig)
 }
 
@@ -391,15 +391,15 @@ func (s *DNSSuite) TestServiceLookup(c *C) {
 
 	for _, t := range tests {
 		// Mock the call to Instances to return t.data.
-		s.store.InstancesFn = func(service string) []*discoverd.Instance {
+		s.store.InstancesFn = func(service string) ([]*discoverd.Instance, error) {
 			if service == "a" {
 				if len(t.data) == 0 {
-					return []*discoverd.Instance{}
+					return []*discoverd.Instance{}, nil
 				} else {
-					return t.data
+					return t.data, nil
 				}
 			}
-			return nil
+			return nil, nil
 		}
 
 		client := &dns.Client{Net: t.net}
@@ -599,14 +599,14 @@ type testAddr struct {
 
 // DNSServerStore represents a mock implementation of DNSServer.Store.
 type DNSServerStore struct {
-	InstancesFn     func(service string) []*discoverd.Instance
-	ServiceLeaderFn func(service string) *discoverd.Instance
+	InstancesFn     func(service string) ([]*discoverd.Instance, error)
+	ServiceLeaderFn func(service string) (*discoverd.Instance, error)
 }
 
-func (s *DNSServerStore) Instances(service string) []*discoverd.Instance {
+func (s *DNSServerStore) Instances(service string) ([]*discoverd.Instance, error) {
 	return s.InstancesFn(service)
 }
 
-func (s *DNSServerStore) ServiceLeader(service string) *discoverd.Instance {
+func (s *DNSServerStore) ServiceLeader(service string) (*discoverd.Instance, error) {
 	return s.ServiceLeaderFn(service)
 }

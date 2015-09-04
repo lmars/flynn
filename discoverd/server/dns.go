@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"strconv"
 	"strings"
@@ -19,8 +20,8 @@ type DNSServer struct {
 	Recursors []string
 
 	Store interface {
-		Instances(service string) []*discoverd.Instance
-		ServiceLeader(service string) *discoverd.Instance
+		Instances(service string) ([]*discoverd.Instance, error)
+		ServiceLeader(service string) (*discoverd.Instance, error)
 	}
 
 	servers []*dns.Server
@@ -207,18 +208,29 @@ func (d dnsAPI) ServiceLookup(w dns.ResponseWriter, req *dns.Msg) {
 
 	var instances []*discoverd.Instance
 	if !leader {
-		instances = d.Store.Instances(service)
-		if instances == nil {
+		a, err := d.Store.Instances(service)
+		if err != nil {
+			log.Println("discoverd: dns: cannot retrieve instances: %s", err)
+			nxdomain()
+			return
+		} else if a == nil {
 			nxdomain()
 			return
 		}
+		instances = a
 	}
 
 	if leader || instanceID != "" {
 		// we're doing a lookup for a single instance
 		var resInst *discoverd.Instance
 		if leader {
-			resInst = d.Store.ServiceLeader(service)
+			sl, err := d.Store.ServiceLeader(service)
+			if err != nil {
+				log.Println("discoverd: dns: cannot retrieve service leader: %s", err)
+				nxdomain()
+				return
+			}
+			resInst = sl
 		} else {
 			for _, inst := range instances {
 				if inst.ID == instanceID {

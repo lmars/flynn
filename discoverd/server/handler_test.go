@@ -487,8 +487,8 @@ func TestHandler_DeleteInstance_ErrUnknown(t *testing.T) {
 // Ensure the handler can retrieve a list of instances for a service.
 func TestHandler_GetInstances(t *testing.T) {
 	h := NewHandler()
-	h.Store.InstancesFn = func(service string) []*discoverd.Instance {
-		return []*discoverd.Instance{{ID: "inst0"}, {ID: "inst1"}}
+	h.Store.InstancesFn = func(service string) ([]*discoverd.Instance, error) {
+		return []*discoverd.Instance{{ID: "inst0"}, {ID: "inst1"}}, nil
 	}
 
 	w := httptest.NewRecorder()
@@ -536,7 +536,7 @@ func TestHandler_GetInstances_Stream(t *testing.T) {
 // Ensure the handler returns an error if a nil set of instances is returned from the store.
 func TestHandler_GetInstances_ErrNotFound(t *testing.T) {
 	h := NewHandler()
-	h.Store.InstancesFn = func(service string) []*discoverd.Instance { return nil }
+	h.Store.InstancesFn = func(service string) ([]*discoverd.Instance, error) { return nil, nil }
 
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, MustNewHTTPRequest("GET", "/services/abc/instances", nil))
@@ -642,11 +642,11 @@ func TestHandler_PutLeader_ErrUnknown(t *testing.T) {
 // Ensure the handler can retrieve the current leader for a service.
 func TestHandler_GetLeader(t *testing.T) {
 	h := NewHandler()
-	h.Store.ServiceLeaderFn = func(service string) *discoverd.Instance {
+	h.Store.ServiceLeaderFn = func(service string) (*discoverd.Instance, error) {
 		if service != "abc" {
 			t.Fatalf("unexpected service: %s", service)
 		}
-		return &discoverd.Instance{ID: "xxx"}
+		return &discoverd.Instance{ID: "xxx"}, nil
 	}
 
 	w := httptest.NewRecorder()
@@ -694,7 +694,7 @@ func TestHandler_GetLeader_Stream(t *testing.T) {
 // Ensure the handler returns an error if there is not a current leader.
 func TestHandler_GetLeader_ErrNoLeader(t *testing.T) {
 	h := NewHandler()
-	h.Store.ServiceLeaderFn = func(service string) *discoverd.Instance { return nil }
+	h.Store.ServiceLeaderFn = func(service string) (*discoverd.Instance, error) { return nil, nil }
 
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, MustNewHTTPRequest("GET", "/services/abc/leader", nil))
