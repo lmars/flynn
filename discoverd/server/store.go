@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math/rand"
 	"net"
 	"os"
@@ -367,7 +366,7 @@ func (s *Store) applyAddInstanceCommand(cmd []byte, index uint64) error {
 	}
 
 	// Check if the existing instance is being updated.
-	updating := (existing && !c.Instance.Equal(s.data.Instances[c.Service][c.Instance.ID].Instance))
+	updating := existing && !c.Instance.Equal(s.data.Instances[c.Service][c.Instance.ID].Instance)
 
 	// Update entry.
 	s.data.Instances[c.Service][c.Instance.ID] = instanceEntry{
@@ -540,8 +539,6 @@ func (s *Store) applySetLeaderCommand(cmd []byte) error {
 
 	// Notify new leadership.
 	if entry, ok := s.data.Instances[c.Service][c.ID]; ok && entry.Instance != nil {
-		log.Printf("XXX> SET LEADER: service=%v, inst=%v", c.Service, c.ID)
-
 		s.broadcast(&discoverd.Event{
 			Service:  c.Service,
 			Kind:     discoverd.EventKindLeader,
@@ -588,13 +585,9 @@ func (s *Store) invalidateServiceLeader(service string, now time.Time) {
 	// Retrieve current leader ID.
 	prevLeaderID := s.data.Leaders[service]
 
-	log.Printf("XXX> INVALIDATE.0: service=%v, prev=%v", service, prevLeaderID)
-
 	// Find the oldest, non-expired instance.
 	var leader *discoverd.Instance
 	for _, entry := range s.data.Instances[service] {
-		log.Printf("XXX> INVALIDATE.1: entry=%v, idx=%v, expiry=%v, now=%v, expired=%v", entry.Instance.ID, entry.Instance.Index, entry.ExpiryTime, now, entry.ExpiryTime.Before(now))
-
 		// Ignore expired entries.
 		if entry.ExpiryTime.Before(now) {
 			continue
@@ -602,7 +595,6 @@ func (s *Store) invalidateServiceLeader(service string, now time.Time) {
 
 		// Set leader if there is no leader or if the index is older.
 		if leader == nil || entry.Instance.Index < leader.Index {
-			log.Printf("XXX> INVALIDATE.2: entry=%v (NEW LEADER)", entry.Instance.ID)
 			leader = entry.Instance
 		}
 	}
@@ -613,8 +605,6 @@ func (s *Store) invalidateServiceLeader(service string, now time.Time) {
 		leaderID = leader.ID
 	}
 
-	log.Printf("XXX> INVALIDATE.3: service=%v, entry=%v (SET LEADER)", service, leaderID)
-
 	// Set leader.
 	s.data.Leaders[service] = leaderID
 
@@ -623,10 +613,6 @@ func (s *Store) invalidateServiceLeader(service string, now time.Time) {
 		var inst *discoverd.Instance
 		if s.data.Instances[service] != nil && s.data.Instances[service][leaderID].Instance != nil {
 			inst = s.data.Instances[service][leaderID].Instance
-		}
-
-		if inst != nil {
-			log.Printf("XXX> INVALIDATE.4: service=%v, entry=%v (BROADCAST LEADER)", service, inst.ID)
 		}
 
 		s.broadcast(&discoverd.Event{

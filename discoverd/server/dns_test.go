@@ -27,7 +27,6 @@ func (s *DNSSuite) SetUpTest(c *C) {
 	s.srv.Store = &s.store
 	s.store.InstancesFn = func(service string) ([]*discoverd.Instance, error) { return nil, nil }
 	s.store.ServiceLeaderFn = func(service string) (*discoverd.Instance, error) { return nil, nil }
-	// s.store.AddService("a", DefaultServiceConfig)
 }
 
 func (s *DNSSuite) newServer(c *C, recursors []string) *DNSServer {

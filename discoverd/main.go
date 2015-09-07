@@ -196,7 +196,7 @@ func (m *Main) openStore(path, bindAddress, advertise string, peers []string) er
 	s.Advertise = addr
 
 	// Allow single node if there's no peers set.
-	s.EnableSingleNode = (len(peers) <= 1)
+	s.EnableSingleNode = len(peers) <= 1
 
 	// Open store.
 	if err := s.Open(); err != nil {
@@ -329,7 +329,7 @@ func (m *Main) ParseFlags(args ...string) (Options, error) {
 
 	// Split recursors into slice.
 	if recursors != "" {
-		opt.Recursors = strings.Split(recursors, ",")
+		opt.Recursors = TrimSpaceSlice(strings.Split(recursors, ","))
 	}
 
 	// Validate options.

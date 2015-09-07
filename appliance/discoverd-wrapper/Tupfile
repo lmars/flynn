@@ -1,4 +1,0 @@
-include_rules
-: |> !go ../../discoverd |> bin/discoverd
-: |> !go |> bin/discoverd-wrapper
-: bin/* |> !docker-bootstrapped |>

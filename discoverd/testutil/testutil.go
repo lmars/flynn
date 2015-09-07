@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -46,7 +47,7 @@ func RunDiscoverdServer(t TestingT, raftPort, httpPort string) (string, func()) 
 		)
 
 		var stderr, stdout io.Reader
-		if true || os.Getenv("DEBUG") != "" {
+		if os.Getenv("DEBUG") != "" {
 			stderr, _ = cmd.StderrPipe()
 			stdout, _ = cmd.StdoutPipe()
 		}
@@ -122,7 +123,7 @@ func waitForLeader(t TestingT, host string, timeout time.Duration) error {
 		}
 
 		// Ping HTTP API.
-		resp, err := http.Get("http://" + host + "/raft/leader")
+		resp, err := http.Get(fmt.Sprintf("http://%s/raft/leader", host))
 		if err != nil {
 			t.Log("http get error:", err)
 			continue

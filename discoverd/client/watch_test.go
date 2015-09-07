@@ -19,7 +19,7 @@ type ClientSuite struct{}
 var _ = Suite(&ClientSuite{})
 
 func (s *ClientSuite) TestWatchReconnect(c *C) {
-	return // FIXME(benbjohnson): Fix discoverd watch reconnect.
+	c.Skip("fix discoverd watch reconnect") // FIXME(benbjohnson)
 
 	raftPort, err := etcdrunner.RandomPort()
 	c.Assert(err, IsNil)

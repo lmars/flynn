@@ -22,7 +22,7 @@ const StreamBufferSize = 64 // TODO: Figure out how big this buffer should be.
 func NewHandler() *Handler {
 	h := &Handler{router: httprouter.New()}
 
-	h.router.Handler("GET", status.Path, status.SimpleHandler(func() error { return nil }))
+	h.router.HandlerFunc("GET", status.Path, status.HealthyHandler.ServeHTTP)
 
 	h.router.PUT("/services/:service", h.servePutService)
 	h.router.DELETE("/services/:service", h.serveDeleteService)
