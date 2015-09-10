@@ -219,6 +219,7 @@ func (s *SchedulerSuite) TestJobStatus(t *c.C) {
 }
 
 func (s *SchedulerSuite) TestOmniJobs(t *c.C) {
+	t.Fatal("FAIL")
 	if testCluster == nil {
 		t.Skip("cannot boot new hosts")
 	}
