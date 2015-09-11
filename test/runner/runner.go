@@ -338,7 +338,7 @@ func (r *Runner) build(b *Build) (err error) {
 	var failureBuf bytes.Buffer
 	defer func() {
 		// parse the failures
-		s := bufio.NewScanner(failureBuf)
+		s := bufio.NewScanner(&failureBuf)
 		for s.Scan() {
 			if match := failPattern.FindSubmatch(s.Bytes()); match != nil {
 				b.Failures = append(b.Failures, string(match[1]))
@@ -372,7 +372,7 @@ func (r *Runner) build(b *Build) (err error) {
 
 	log.Printf("building %s\n", b.Commit)
 
-	out := &iotool.SafeWriter{W: io.MultiWriter(os.Stdout, mainLog, failureBuf)}
+	out := &iotool.SafeWriter{W: io.MultiWriter(os.Stdout, mainLog, &failureBuf)}
 	bc := r.bc
 	bc.Network = r.allocateNet()
 	defer r.releaseNet(bc.Network)
