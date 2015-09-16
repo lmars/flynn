@@ -49,6 +49,16 @@ func NewClientWithURL(url string) *Client {
 			URL: url,
 			HTTP: &http.Client{
 				Transport: &http.Transport{Dial: dialer.Retry.Dial},
+				CheckRedirect: func(req *http.Request, via []*http.Request) error {
+					println("===>", time.Now().Format("2006-01-02T15:04:05.999"), fmt.Sprintf("CheckRedirect"))
+					if len(via) > 10 {
+						return errors.New("stopped after 10 redirects")
+					}
+					lastReq := via[len(via)-1]
+					req.Header = lastReq.Header
+					println("===>", time.Now().Format("2006-01-02T15:04:05.999"), fmt.Sprintf("CheckRedirect req.header=%+v"))
+					return nil
+				},
 			},
 		},
 	}
