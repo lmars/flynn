@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -158,6 +159,11 @@ func formatKeyID(s string) string {
 }
 
 func (s *CLISuite) TestPs(t *c.C) {
+	cmd := exec.Command("/bin/cat", "/etc/hosts")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	t.Assert(cmd.Run(), c.IsNil)
+
 	app := s.newCliTestApp(t)
 	defer app.cleanup()
 	ps := func() []string {
