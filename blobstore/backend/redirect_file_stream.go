@@ -1,4 +1,4 @@
-package main
+package backend
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"net/url"
 )
 
-func NewRedirectFileStream(url string) FileStream {
+func newRedirectFileStream(url string) FileStream {
 	return &redirectFileStream{url: url}
 }
 
@@ -23,6 +23,7 @@ func (s *redirectFileStream) Read(p []byte) (int, error) {
 			return 0, err
 		}
 		if res.StatusCode != 200 {
+			res.Body.Close()
 			return 0, &url.Error{
 				Op:  "GET",
 				URL: s.url,

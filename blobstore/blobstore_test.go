@@ -16,6 +16,8 @@ import (
 	"testing"
 
 	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/jackc/pgx"
+	"github.com/flynn/flynn/blobstore/backend"
+	"github.com/flynn/flynn/blobstore/data"
 	"github.com/flynn/flynn/pkg/postgres"
 	"github.com/flynn/flynn/pkg/random"
 	"github.com/flynn/flynn/pkg/shutdown"
@@ -46,8 +48,7 @@ func initDB(t *testing.T) *postgres.DB {
 func TestPostgresFilesystem(t *testing.T) {
 	db := initDB(t)
 	defer db.Close()
-	backend := PostgresBackend{}
-	r := NewFileRepo(db, []Backend{backend}, "postgres")
+	r := data.NewFileRepo(db, []backend.Backend{backend.Postgres}, "postgres")
 	testList(r, t)
 	testDelete(r, t)
 	testOffset(r, t, true)
@@ -70,18 +71,18 @@ func TestS3Filesystem(t *testing.T) {
 	}
 	db := initDB(t)
 	defer db.Close()
-	b, err := NewS3Backend("s3-test", parseBackendEnv(cfg))
+	b, err := backend.NewS3("s3-test", parseBackendEnv(cfg))
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := NewFileRepo(db, []Backend{b}, "s3-test")
+	r := data.NewFileRepo(db, []backend.Backend{b}, "s3-test")
 	testList(r, t)
 	testDelete(r, t)
 	testOffset(r, t, false)
 	testFilesystem(r, false, t)
 }
 
-func testList(r *FileRepo, t *testing.T) {
+func testList(r *data.FileRepo, t *testing.T) {
 	srv := httptest.NewServer(handler(r))
 	defer srv.Close()
 
@@ -160,7 +161,7 @@ func testList(r *FileRepo, t *testing.T) {
 	assertList("/dir2", []string{"/dir2/foo.txt"})
 }
 
-func testDelete(r *FileRepo, t *testing.T) {
+func testDelete(r *data.FileRepo, t *testing.T) {
 	put := func(path string) {
 		if err := r.Put(path, bytes.NewReader([]byte("data")), 0, "text/plain"); err != nil {
 			t.Fatal(err)
@@ -177,7 +178,7 @@ func testDelete(r *FileRepo, t *testing.T) {
 		}
 	}
 	assertNotExists := func(path string) {
-		if _, err := r.Get(path, false); err != ErrNotFound {
+		if _, err := r.Get(path, false); err != backend.ErrNotFound {
 			t.Fatalf("expected path %q to not exist, got err=%v", path, err)
 		}
 	}
@@ -196,7 +197,7 @@ func testDelete(r *FileRepo, t *testing.T) {
 	assertNotExists("/dir/bar.txt")
 }
 
-func testOffset(r *FileRepo, t *testing.T, checkEtags bool) {
+func testOffset(r *data.FileRepo, t *testing.T, checkEtags bool) {
 	srv := httptest.NewServer(handler(r))
 	defer srv.Close()
 
@@ -249,7 +250,7 @@ func testOffset(r *FileRepo, t *testing.T, checkEtags bool) {
 
 const concurrency = 5
 
-func testFilesystem(r *FileRepo, testMeta bool, t *testing.T) {
+func testFilesystem(r *data.FileRepo, testMeta bool, t *testing.T) {
 	srv := httptest.NewServer(handler(r))
 	defer srv.Close()
 

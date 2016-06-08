@@ -2,8 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -11,9 +9,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/jackc/pgx"
+	"github.com/flynn/flynn/blobstore/backend"
+	"github.com/flynn/flynn/blobstore/data"
 	"github.com/flynn/flynn/discoverd/client"
 	"github.com/flynn/flynn/pkg/httphelper"
 	"github.com/flynn/flynn/pkg/postgres"
@@ -22,7 +20,7 @@ import (
 )
 
 func errorResponse(w http.ResponseWriter, err error) {
-	if err == ErrNotFound {
+	if err == backend.ErrNotFound {
 		http.Error(w, "NotFound", 404)
 		return
 	}
@@ -30,42 +28,7 @@ func errorResponse(w http.ResponseWriter, err error) {
 	http.Error(w, "Internal Server Error", 500)
 }
 
-type File struct {
-	FileStream
-	FileInfo
-}
-
-type FileStream interface {
-	io.ReadSeeker
-	io.Closer
-}
-
-type Redirector interface {
-	RedirectURL() string
-}
-
-type FileInfo struct {
-	ID         string
-	Name       string
-	Size       int64
-	ETag       string
-	Type       string
-	Oid        *pgx.Oid
-	ExternalID string
-	ModTime    time.Time
-}
-
-type Backend interface {
-	Name() string
-	Open(tx *postgres.DBTx, info FileInfo, txControl bool) (FileStream, error)
-	Put(tx *postgres.DBTx, info FileInfo, r io.Reader, append bool) error
-	Copy(tx *postgres.DBTx, dst, src FileInfo) error
-	Delete(info FileInfo) error
-}
-
-var ErrNotFound = errors.New("file not found")
-
-func handler(r *FileRepo) http.Handler {
+func handler(r *data.FileRepo) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		path := path.Clean(req.URL.Path)
 
@@ -77,7 +40,7 @@ func handler(r *FileRepo) http.Handler {
 				return
 			}
 			paths, err := r.List(req.URL.Query().Get("dir"))
-			if err != nil && err != ErrNotFound {
+			if err != nil && err != backend.ErrNotFound {
 				errorResponse(w, err)
 				return
 			}
@@ -100,7 +63,7 @@ func handler(r *FileRepo) http.Handler {
 			if file.FileStream != nil {
 				defer file.Close()
 			}
-			if r, ok := file.FileStream.(Redirector); ok && req.Method == "GET" {
+			if r, ok := file.FileStream.(backend.Redirector); ok && req.Method == "GET" {
 				http.Redirect(w, req, r.RedirectURL(), http.StatusFound)
 				return
 			}
@@ -160,7 +123,7 @@ func main() {
 	shutdown.BeforeExit(func() { hb.Close() })
 
 	mux := http.NewServeMux()
-	backends := []Backend{PostgresBackend{}}
+	backends := []backend.Backend{backend.Postgres}
 
 	for _, env := range os.Environ() {
 		if !strings.HasPrefix(env, configEnvPrefix) {
@@ -172,7 +135,7 @@ func main() {
 		if info["backend"] != "s3" {
 			shutdown.Fatalf("error: unknown backend %q for %s", info["backend"], name)
 		}
-		b, err := NewS3Backend(name, info)
+		b, err := backend.NewS3(name, info)
 		if err != nil {
 			shutdown.Fatal(err)
 		}
@@ -197,7 +160,7 @@ func main() {
 
 	log.Println("Blobstore serving files on " + addr)
 
-	mux.Handle("/", handler(NewFileRepo(db, backends, defaultBackend)))
+	mux.Handle("/", handler(data.NewFileRepo(db, backends, defaultBackend)))
 	mux.Handle(status.Path, status.Handler(func() status.Status {
 		if err := db.Exec("SELECT 1"); err != nil {
 			return status.Unhealthy

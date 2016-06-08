@@ -1,4 +1,4 @@
-package main
+package backend
 
 import (
 	"fmt"
@@ -17,9 +17,9 @@ import (
 	"github.com/flynn/flynn/pkg/random"
 )
 
-func NewS3Backend(name string, info map[string]string) (Backend, error) {
+func NewS3(name string, info map[string]string) (Backend, error) {
 	c := aws.NewConfig()
-	b := &S3Backend{
+	b := &s3Backend{
 		name:   name,
 		bucket: info["bucket"],
 	}
@@ -55,17 +55,17 @@ func NewS3Backend(name string, info map[string]string) (Backend, error) {
 	return b, nil
 }
 
-type S3Backend struct {
+type s3Backend struct {
 	name   string
 	bucket string
 	client s3iface.S3API
 }
 
-func (b *S3Backend) Name() string {
+func (b *s3Backend) Name() string {
 	return b.name
 }
 
-func (b *S3Backend) Put(tx *postgres.DBTx, info FileInfo, r io.Reader, append bool) error {
+func (b *s3Backend) Put(tx *postgres.DBTx, info FileInfo, r io.Reader, append bool) error {
 	if append {
 		// This is a hack, the next easiest thing to do if we need to handle
 		// upload resumption is to finalize the multipart upload when the client
@@ -96,7 +96,7 @@ func (b *S3Backend) Put(tx *postgres.DBTx, info FileInfo, r io.Reader, append bo
 	return err
 }
 
-func (b *S3Backend) Copy(tx *postgres.DBTx, dst, src FileInfo) error {
+func (b *s3Backend) Copy(tx *postgres.DBTx, dst, src FileInfo) error {
 	dst.ExternalID = random.UUID()
 	if err := tx.Exec("UPDATE files SET external_id = $2 WHERE file_id = $1", dst.ID, dst.ExternalID); err != nil {
 		return err
@@ -112,7 +112,7 @@ func (b *S3Backend) Copy(tx *postgres.DBTx, dst, src FileInfo) error {
 	return err
 }
 
-func (b *S3Backend) Delete(info FileInfo) error {
+func (b *s3Backend) Delete(info FileInfo) error {
 	_, err := b.client.DeleteObject(&s3.DeleteObjectInput{
 		Bucket: &b.bucket,
 		Key:    &info.ExternalID,
@@ -120,7 +120,7 @@ func (b *S3Backend) Delete(info FileInfo) error {
 	return err
 }
 
-func (b *S3Backend) Open(tx *postgres.DBTx, info FileInfo, txControl bool) (FileStream, error) {
+func (b *s3Backend) Open(tx *postgres.DBTx, info FileInfo, txControl bool) (FileStream, error) {
 	if txControl {
 		// We don't need the database transaction, so clean it up
 		tx.Rollback()
@@ -135,5 +135,5 @@ func (b *S3Backend) Open(tx *postgres.DBTx, info FileInfo, txControl bool) (File
 		return nil, err
 	}
 
-	return NewRedirectFileStream(url), nil
+	return newRedirectFileStream(url), nil
 }
