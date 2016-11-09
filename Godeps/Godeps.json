@@ -1,7 +1,7 @@
 {
 	"ImportPath": "github.com/flynn/flynn",
 	"GoVersion": "go1.7",
-	"GodepVersion": "v74",
+	"GodepVersion": "v75",
 	"Packages": [
 		"./..."
 	],
@@ -498,11 +498,6 @@
 			"Rev": "bb80604a0b200140a440675348c848a137a1b2e2"
 		},
 		{
-			"ImportPath": "github.com/docker/docker/image/tarexport",
-			"Comment": "v1.12.2",
-			"Rev": "bb80604a0b200140a440675348c848a137a1b2e2"
-		},
-		{
 			"ImportPath": "github.com/docker/docker/image/v1",
 			"Comment": "v1.12.2",
 			"Rev": "bb80604a0b200140a440675348c848a137a1b2e2"
@@ -624,11 +619,6 @@
 		},
 		{
 			"ImportPath": "github.com/docker/docker/pkg/signal",
-			"Comment": "v1.12.2",
-			"Rev": "bb80604a0b200140a440675348c848a137a1b2e2"
-		},
-		{
-			"ImportPath": "github.com/docker/docker/pkg/streamformatter",
 			"Comment": "v1.12.2",
 			"Rev": "bb80604a0b200140a440675348c848a137a1b2e2"
 		},
