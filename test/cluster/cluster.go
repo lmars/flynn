@@ -401,12 +401,12 @@ git config user.name "CI"
 git merge origin/master
 {{ end }}
 
-test/scripts/wait-for-docker
+make toolchain
 
 # pull flynn/busybox before building to avoid the following Docker error when
 # building images from scratch concurrently:
 # "could not find image: no such id: flynn/busybox"
-docker pull flynn/busybox
+util/_toolchain/docker/bin/docker pull flynn/busybox
 
 make
 

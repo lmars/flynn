@@ -5,14 +5,16 @@ GIT_TAG=`git tag --list "v*" --sort "v:refname" --points-at HEAD 2>/dev/null | t
 GIT_DIRTY=`test -n "$(git status --porcelain)" && echo true || echo false`
 GIT_DEV=GIT_COMMIT=dev GIT_BRANCH=dev GIT_TAG=none GIT_DIRTY=false
 GO_ENV=GOROOT=`readlink -f util/_toolchain/go`
+DOCKER_ENV=PATH=${PWD}/util/_toolchain/docker/bin:${PATH}
 
 all: toolchain
-	@$(GIT_DEV) $(GO_ENV) tup
+	@$(GIT_DEV) $(GO_ENV) $(DOCKER_ENV) tup
 
 release: toolchain
-	@GIT_COMMIT=$(GIT_COMMIT) GIT_BRANCH=$(GIT_BRANCH) GIT_TAG=$(GIT_TAG) GIT_DIRTY=$(GIT_DIRTY) $(GO_ENV) tup
+	@GIT_COMMIT=$(GIT_COMMIT) GIT_BRANCH=$(GIT_BRANCH) GIT_TAG=$(GIT_TAG) GIT_DIRTY=$(GIT_DIRTY) $(GO_ENV) $(DOCKER_ENV) tup
 
 clean:
+	util/_toolchain/docker.sh stop
 	git clean -Xdf -e '!.tup' -e '!.vagrant' -e '!script/custom-vagrant'
 	sudo rm -rf "/var/lib/flynn/layer-cache"
 
@@ -31,6 +33,6 @@ test-integration: toolchain
 	script/run-integration-tests
 
 toolchain:
-	@cd util/_toolchain && ./build.sh
+	@cd util/_toolchain && ./go.sh && ./docker.sh start
 
 .PHONY: all clean dev release test test-unit test-integration

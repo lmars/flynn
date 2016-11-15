@@ -7,6 +7,7 @@ bin
 script/custom-vagrant
 demo/*.log
 util/_toolchain/go
+util/_toolchain/docker
 *.swp
 *.test
 /tmp
