@@ -34,4 +34,5 @@ exec /usr/local/bin/flynn-host daemon \
   --volpath    "${DIR}/volumes" \
   --log-dir    "${DIR}/logs" \
   --zpool-name "${ZPOOL}" \
+  --discovery-service "${FLYNN_APP_NAME}" \
   --no-resurrect
