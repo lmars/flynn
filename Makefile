@@ -33,6 +33,6 @@ test-integration: toolchain
 	script/run-integration-tests
 
 toolchain:
-	@cd util/_toolchain && ./go.sh && ./docker.sh start
+	@cd util/_toolchain && bash -x ./go.sh && bash -x ./docker.sh start
 
 .PHONY: all clean dev release test test-unit test-integration
