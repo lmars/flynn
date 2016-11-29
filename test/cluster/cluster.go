@@ -30,6 +30,7 @@ const (
 type BootConfig struct {
 	User       string
 	Kernel     string
+	Initrd     string
 	Network    string
 	NatIface   string
 	BackupsDir string
@@ -114,6 +115,7 @@ func (c *Cluster) BuildFlynn(rootFS, commit string, merge bool, runTests bool) (
 
 	build, err := c.vm.NewInstance(&VMConfig{
 		Kernel: c.bc.Kernel,
+		Initrd: c.bc.Initrd,
 		User:   uid,
 		Group:  gid,
 		Memory: "16384",
@@ -261,6 +263,7 @@ func (c *Cluster) startVMs(typ ClusterType, rootFS string, count int, initial bo
 		}
 		inst, err := c.vm.NewInstance(&VMConfig{
 			Kernel: c.bc.Kernel,
+			Initrd: c.bc.Initrd,
 			User:   uid,
 			Group:  gid,
 			Memory: memory,
@@ -313,6 +316,9 @@ func (c *Cluster) startFlynnHost(inst *Instance, peerInstances []*Instance) erro
 func (c *Cluster) setup() error {
 	if _, err := os.Stat(c.bc.Kernel); os.IsNotExist(err) {
 		return fmt.Errorf("cluster: not a kernel file: %s", c.bc.Kernel)
+	}
+	if _, err := os.Stat(c.bc.Initrd); os.IsNotExist(err) {
+		return fmt.Errorf("cluster: not an initrd file: %s", c.bc.Initrd)
 	}
 	if c.bridge == nil {
 		var err error

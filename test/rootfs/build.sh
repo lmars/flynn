@@ -16,7 +16,7 @@ cleanup() {
 }
 trap cleanup ERR
 
-image="http://cdimage.ubuntu.com/ubuntu-base/releases/14.04/release/ubuntu-base-14.04-core-amd64.tar.gz"
+image="http://cdimage.ubuntu.com/ubuntu-base/releases/16.04/release/ubuntu-base-16.04.1-base-amd64.tar.gz"
 curl -L ${image} | sudo tar -xzC ${dir}
 
 # use jchroot (https://github.com/vincentbernat/jchroot) which uses a PID
@@ -24,6 +24,7 @@ curl -L ${image} | sudo tar -xzC ${dir}
 sudo jchroot ${dir} bash < "${src_dir}/setup.sh"
 
 sudo cp ${dir}/boot/vmlinuz-* ${build_dir}/vmlinuz
+sudo cp ${dir}/boot/initrd.img-* ${build_dir}/initrd.img
 
 cleanup
 
