@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"os/signal"
 	"strconv"
@@ -61,6 +62,7 @@ func runRun(args *docopt.Args, client *cluster.Client) error {
 			cmd.Env = make(map[string]string, len(keys))
 		}
 		for _, key := range keys {
+			println("===>", time.Now().Format("2006-01-02T15:04:05.999"), fmt.Sprintf("keepEnv %s %s", key, os.Getenv(key)))
 			cmd.Env[key] = os.Getenv(key)
 		}
 	}
