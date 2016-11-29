@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -77,7 +78,8 @@ type Instance struct {
 	tap *Tap
 	cmd *exec.Cmd
 
-	tempFiles []string
+	tempFiles   []string
+	monitorSock string
 
 	sshMtx sync.RWMutex
 	ssh    *ssh.Client
@@ -133,6 +135,18 @@ func (i *Instance) Start() error {
 	macRand := random.Bytes(3)
 	macaddr := fmt.Sprintf("52:54:00:%02x:%02x:%02x", macRand[0], macRand[1], macRand[2])
 
+	tmp, err := ioutil.TempFile("", "qemu-monitor-")
+	if err != nil {
+		i.cleanup()
+		return err
+	}
+	i.monitorSock = tmp.Name()
+	i.tempFiles = append(i.tempFiles, i.monitorSock)
+	if err := os.Chown(i.monitorSock, i.User, i.Group); err != nil {
+		i.cleanup()
+		return err
+	}
+
 	i.Args = append(i.Args,
 		"-enable-kvm",
 		"-kernel", i.Kernel,
@@ -142,6 +156,7 @@ func (i *Instance) Start() error {
 		"-device", "virtio-net,netdev=vmnic,mac="+macaddr,
 		"-virtfs", "fsdriver=local,path="+i.netFS+",security_model=passthrough,readonly,mount_tag=netfs",
 		"-virtfs", "fsdriver=local,path="+i.BackupsDir+",security_model=passthrough,readonly,mount_tag=backupsfs",
+		"-monitor", fmt.Sprintf("unix:%s,server,nowait", i.monitorSock),
 		"-nographic",
 	)
 	if i.Memory != "" {
@@ -165,7 +180,6 @@ func (i *Instance) Start() error {
 	i.cmd = exec.Command("sudo", append([]string{"-u", fmt.Sprintf("#%d", i.User), "-g", fmt.Sprintf("#%d", i.Group), "-H", "/usr/bin/qemu-system-x86_64"}, i.Args...)...)
 	i.cmd.Stdout = i.Out
 	i.cmd.Stderr = i.Out
-	var err error
 	if err = i.cmd.Start(); err != nil {
 		i.cleanup()
 	}
@@ -209,7 +223,11 @@ func (i *Instance) Wait(timeout time.Duration) error {
 }
 
 func (i *Instance) Shutdown() error {
-	if err := i.Run("sudo poweroff", nil); err != nil {
+	conn, err := net.Dial("unix", i.monitorSock)
+	if err != nil {
+		return i.Kill()
+	}
+	if _, err := conn.Write([]byte("system_powerdown\n")); err != nil {
 		return i.Kill()
 	}
 	if err := i.Wait(5 * time.Second); err != nil {
