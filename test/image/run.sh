@@ -2,6 +2,8 @@
 
 set -e
 
+set -x
+
 export HOME="/root"
 export PATH="${ROOT}/cli/bin:${ROOT}/host/bin:${PATH}"
 export BACKOFF_PERIOD="5s"
