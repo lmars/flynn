@@ -27,6 +27,7 @@ Options:
 	--host=<host>        run on a specific host
 	--bind=<mountspecs>  bind mount a directory into the job (ex: /foo:/data,/bar:/baz)
 	--volume=<path>      mount a temporary volume at <path>
+	--keep-env=<vars>    keep env vars
 
 Example:
 	$ flynn-host run <(jq '.mongodb' images.json) mongo --version
@@ -54,6 +55,15 @@ func runRun(args *docopt.Args, client *cluster.Client) error {
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 	}
+	if keepEnv := args.String["--keep-env"]; keepEnv != "" {
+		keys := strings.Split(keepEnv, ",")
+		if cmd.Env == nil {
+			cmd.Env = make(map[string]string, len(keys))
+		}
+		for _, key := range keys {
+			cmd.Env[key] = os.Getenv(key)
+		}
+	}
 	if cmd.Job.Config.TTY {
 		ws, err := term.GetWinsize(os.Stdin.Fd())
 		if err != nil {
@@ -61,11 +71,12 @@ func runRun(args *docopt.Args, client *cluster.Client) error {
 		}
 		cmd.TermHeight = ws.Height
 		cmd.TermWidth = ws.Width
-		cmd.Env = map[string]string{
-			"COLUMNS": strconv.Itoa(int(ws.Width)),
-			"LINES":   strconv.Itoa(int(ws.Height)),
-			"TERM":    os.Getenv("TERM"),
+		if cmd.Env == nil {
+			cmd.Env = make(map[string]string, 3)
 		}
+		cmd.Env["COLUMNS"] = strconv.Itoa(int(ws.Width))
+		cmd.Env["LINES"] = strconv.Itoa(int(ws.Height))
+		cmd.Env["TERM"] = os.Getenv("TERM")
 	}
 	if specs := args.String["--bind"]; specs != "" {
 		mounts := strings.Split(specs, ",")

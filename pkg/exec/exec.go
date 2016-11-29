@@ -202,7 +202,6 @@ func (c *Cmd) Start() error {
 			Config: host.ContainerConfig{
 				Args:        c.Args,
 				TTY:         c.TTY,
-				Env:         c.Env,
 				Stdin:       c.Stdin != nil || c.stdinPipe != nil,
 				HostNetwork: c.HostNetwork,
 				Mounts:      c.Mounts,
@@ -234,6 +233,12 @@ func (c *Cmd) Start() error {
 		}
 	}
 
+	for key, val := range c.Env {
+		if c.Job.Config.Env == nil {
+			c.Job.Config.Env = make(map[string]string, len(c.Env))
+		}
+		c.Job.Config.Env[key] = val
+	}
 	for _, vol := range c.Volumes {
 		if _, err := utils.ProvisionVolume(vol, c.host, c.Job); err != nil {
 			return err
