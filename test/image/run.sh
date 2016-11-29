@@ -17,23 +17,18 @@ main() {
       >> /etc/hosts
   fi
 
+  export FLYNNRC="$(mktemp)"
   flynn cluster add --docker ${CLUSTER_ADD_ARGS}
 
   cd "${ROOT}/test"
 
-  # remove --flynnrc from $@
-  # TODO: remove once the CI runner no longer passes --flynnrc
-  local args=()
-  while [[ -n "$1" ]]; do
-    if [[ "$1" = "--flynnrc" ]]; then
-      shift 2
-      continue
-    fi
-    args+=("$1")
-    shift
-  done
-
-  exec /bin/flynn-test --flynnrc "${HOME}/.flynnrc" ${args[@]}
+  exec /usr/bin/timeout \
+    --signal=QUIT \
+    --kill-after=10 \
+    45m \
+    /bin/flynn-test \
+    --flynnrc "${FLYNNRC}" \
+    $@
 }
 
 main "$@"

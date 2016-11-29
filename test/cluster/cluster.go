@@ -475,7 +475,6 @@ sudo start-stop-daemon \
   daemon \
   --id {{ .ID }} \
   --external-ip {{ .IP }} \
-  --listen-ip {{ .IP }} \
   --force \
   {{ if .Peers }} --peer-ips {{ .Peers }} {{ end }} \
   --max-job-concurrency 8 \

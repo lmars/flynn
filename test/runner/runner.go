@@ -318,56 +318,41 @@ var testRunScript = template.Must(template.New("test-run").Parse(`
 #!/bin/bash
 set -e -x -o pipefail
 
-echo {{ .Cluster.RouterIP }} {{ .Cluster.ClusterDomain }} {{ .Cluster.ControllerDomain }} {{ .Cluster.GitDomain }} dashboard.{{ .Cluster.ClusterDomain }} docker.{{ .Cluster.ClusterDomain }} | sudo tee -a /etc/hosts
+ROOT="${HOME}/go/src/github.com/flynn/flynn"
+source "${ROOT}/script/lib/util.sh"
 
-# Wait for the Flynn bridge interface to show up so we can use it as the
-# nameserver to resolve discoverd domains
-iface=flynnbr0
-start=$(date +%s)
-while true; do
-  ip=$(ifconfig ${iface} | grep -oP 'inet addr:\S+' | cut -d: -f2)
-  [[ -n "${ip}" ]] && break || sleep 0.2
-
-  elapsed=$(($(date +%s) - ${start}))
-  if [[ ${elapsed} -gt 60 ]]; then
-    echo "${iface} did not appear within 60 seconds"
-    exit 1
-  fi
-done
-
-echo "nameserver ${ip}" | sudo tee /etc/resolv.conf
-
-cd ~/go/src/github.com/flynn/flynn
-
-script/configure-docker "{{ .Cluster.ClusterDomain }}"
-
-cli/bin/flynn cluster add \
-  --tls-pin "{{ .Config.TLSPin }}" \
-  --git-url "{{ .Config.GitURL }}" \
-  --docker-push-url "{{ .Config.DockerPushURL }}" \
-  default \
-  {{ .Config.ControllerURL }} \
-  {{ .Config.Key }}
-
-git config --global user.email "ci@flynn.io"
-git config --global user.name "CI"
-
-cd test
+echo {{ .Cluster.RouterIP }} {{ .Cluster.ControllerDomain }} docker.{{ .Cluster.ClusterDomain }} | sudo tee -a /etc/hosts
+"${ROOT}/script/configure-docker" "{{ .Cluster.ClusterDomain }}"
 
 # mount the backups dir
 sudo mkdir -p /mnt/backups
 sudo mount -t 9p -o trans=virtio backupsfs /mnt/backups
 
-cmd="bin/flynn-test \
-  --flynnrc $HOME/.flynnrc \
-  --cluster-api https://{{ .Cluster.BridgeIP }}:{{ .ListenPort }}/cluster/{{ .Cluster.ID }} \
-  --cli $(pwd)/../cli/bin/flynn \
-  --flynn-host $(pwd)/../host/bin/flynn-host \
+# run the test binary in the cluster
+mounts=(
+  "${ROOT}:${ROOT}"
+  "/var/run/docker.sock:/var/run/docker.sock"
+  "/var/lib/flynn:/var/lib/flynn"
+  "/mnt/backups:/mnt/backups"
+)
+
+image="$("${ROOT}/util/release/flynn-release" manifest --image-dir "${ROOT}/image" - <<< '$image_artifact[test]')"
+
+exec "${ROOT}/host/bin/flynn-host" run \
+  --bind     "$(join "," ${mounts[@]})" \
+  --volume   "/tmp" \
+  --keep-env "TEST_RUNNER_AUTH_KEY,BLOBSTORE_S3_CONFIG,BLOBSTORE_GCS_CONFIG,BLOBSTORE_AZURE_CONFIG" \
+  <(echo "${image}") \
+  /usr/bin/env \
+  ROOT="${ROOT}" \
+  CLUSTER_ADD_ARGS="-p {{ .Config.TLSPin }} default {{ .Cluster.ClusterDomain }} {{ .Config.Key }}" \
+  ROUTER_IP="{{ .Cluster.RouterIP }}" \
+  DOMAIN="{{ .Cluster.ClusterDomain }}" \
+  /bin/run-flynn-test.sh \
+  --cluster-api "https://{{ .Cluster.BridgeIP }}:{{ .ListenPort }}/cluster/{{ .Cluster.ID }}" \
   --router-ip {{ .Cluster.RouterIP }} \
   --backups-dir "/mnt/backups" \
-  --debug"
-
-timeout --signal=QUIT --kill-after=10 45m $cmd
+  --debug
 `[1:]))
 
 func formatDuration(d time.Duration) string {
