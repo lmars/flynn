@@ -16,9 +16,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/go-units"
 	"github.com/flynn/flynn/controller/client"
 	ct "github.com/flynn/flynn/controller/types"
 	"github.com/flynn/flynn/discoverd/client"
+	"github.com/flynn/flynn/host/resource"
 	"github.com/flynn/flynn/host/types"
 	"github.com/flynn/flynn/pkg/cluster"
 	"github.com/flynn/flynn/pkg/exec"
@@ -39,6 +41,7 @@ type BootConfig struct {
 	HostTimeout  *time.Duration
 	Key          string
 	Domain       string
+	KVM          bool
 }
 
 type Host struct {
@@ -130,47 +133,55 @@ func Boot(c *BootConfig) (*Cluster, error) {
 		return nil, err
 	}
 
-	var hostEnv map[string]string
-	if c.Size >= 3 {
-		hostEnv = map[string]string{"DISCOVERY_SERVICE": app.Name}
-	}
-	release := &ct.Release{
-		ArtifactIDs: []string{hostImage.ID},
-		Processes: map[string]ct.ProcessType{
-			"host": {
-				Env:      hostEnv,
-				Profiles: []host.JobProfile{host.JobProfileZFS},
-				Mounts: []host.Mount{
-					{
-						Location:  "/var/lib/flynn",
-						Target:    "/var/lib/flynn",
-						Writeable: true,
-					},
-				},
-				Ports: []ct.Port{{
-					Port:  1113,
-					Proto: "tcp",
-					Service: &host.Service{
-						Name:   app.Name,
-						Create: true,
-						Check:  &host.HealthCheck{Type: "tcp"},
-					},
-				}},
-				LinuxCapabilities: append(host.DefaultCapabilities, []string{
-					"CAP_SYS_ADMIN",
-					"CAP_NET_ADMIN",
-				}...),
-				WriteableCgroups: true,
+	proc := ct.ProcessType{
+		Ports: []ct.Port{{
+			Port:  1113,
+			Proto: "tcp",
+			Service: &host.Service{
+				Name:   app.Name,
+				Create: true,
+				Check:  &host.HealthCheck{Type: "tcp"},
 			},
-		},
+		}},
+		LinuxCapabilities: append(host.DefaultCapabilities, []string{
+			"CAP_SYS_ADMIN",
+			"CAP_NET_ADMIN",
+		}...),
+		WriteableCgroups: true,
 	}
+
+	if c.Size >= 3 {
+		proc.Env = map[string]string{"DISCOVERY_SERVICE": app.Name}
+	}
+
+	if c.KVM {
+		proc.Profiles = []host.JobProfile{host.JobProfileKVM}
+		proc.Mounts = []host.Mount{{
+			Location: "/var/lib/flynn/layer-cache",
+			Target:   "/var/lib/flynn/layer-cache",
+		}}
+		proc.Resources = resource.Defaults()
+		proc.Resources.SetLimit(resource.TypeTempDisk, 5*units.GiB)
+		proc.Volumes = []ct.VolumeReq{{Path: "/tmp", DeleteOnStop: true}}
+	} else {
+		proc.Profiles = []host.JobProfile{host.JobProfileZFS}
+		proc.Mounts = []host.Mount{{
+			Location:  "/var/lib/flynn",
+			Target:    "/var/lib/flynn",
+			Writeable: true,
+		}}
+	}
+
 	if c.Backup != "" {
-		proc := release.Processes["host"]
 		proc.Mounts = append(proc.Mounts, host.Mount{
 			Location: c.Backup,
 			Target:   c.Backup,
 		})
-		release.Processes["host"] = proc
+	}
+
+	release := &ct.Release{
+		ArtifactIDs: []string{hostImage.ID},
+		Processes:   map[string]ct.ProcessType{"host": proc},
 	}
 	if err := c.Client.CreateRelease(app.ID, release); err != nil {
 		log.Error("error creating release", "err", err)
