@@ -44,12 +44,17 @@ src="${GOPATH}/src/github.com/flynn/flynn"
   # rebuild components.
   pushd "${src}" >/dev/null
 
-  script/build-flynn \
-    --version "v20161108.0-test" \
-    --tuf-keys "$(tuf --dir test/release root-keys)"
+  # build an updated flynn-host binary
+  FLYNN_VERSION="v20161108.0-test"
+  TUF_ROOT_KEYS="$(tuf --dir test/release root-keys)"
+  script/build-flynn --version "${FLYNN_VERSION}" --tuf-keys "${TUF_ROOT_KEYS}"
+
+  # create new image manifests by adding some metadata
+  jq --argjson meta '{"foo":"bar"}' '.[].manifest.meta = $meta' build/images.json > images.json
+  mv images.json build/images.json
 
   script/export-components "${src}/test/release"
-  script/release-channel --tuf-dir "${src}/test/release" --no-sync --no-changelog "stable" "v20161108.0-test"
+  script/release-channel --tuf-dir "${src}/test/release" --no-sync --no-changelog "stable" "${FLYNN_VERSION}"
 
   popd >/dev/null
 

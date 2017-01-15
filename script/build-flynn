@@ -141,16 +141,21 @@ main() {
 }
 
 git_version() {
-  # if there are tags like 'vYYYYMMDD.N' pointing at HEAD, use the most recent one
+  local commit="$(git rev-parse --short HEAD)"
+  if [[ -z "${commit}" ]]; then
+    fail "unable to determine Git commit"
+  fi
+
+  # if there are tags like 'vYYYYMMDD.N' pointing at HEAD, use the most recent
+  # one suffixed with the commit
   local tag="$(git tag --list "v*" --sort "v:refname" --points-at HEAD 2>/dev/null | tail -n 1)"
   if [[ -n "${tag}" ]]; then
-    echo "${tag}"
+    echo "${tag}-${commit}"
     return
   fi
 
   # use the branch and commit, appending a '+' if the index is dirty
   local branch="$(git rev-parse --abbrev-ref HEAD)"
-  local commit="$(git rev-parse --short HEAD)"
   local version="${branch}-${commit}"
   if [[ -n "$(git status --porcelain)" ]]; then
     version="${version}+"

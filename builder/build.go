@@ -45,10 +45,10 @@ var cmdBuild = Command{
 usage: flynn-builder build [options]
 
 options:
-  -x, --version=VERSION   version to use [default: dev]
-  -t, --tuf-db=<path>     path to TUF database [default: build/tuf.db]
-  -r, --tuf-keys=<keys>   TUF root keys
-  -v, --verbose           be verbose
+  -x, --version=<version>   version to use [default: dev]
+  -t, --tuf-db=<path>       path to TUF database [default: build/tuf.db]
+  -r, --tuf-keys=<keys>     TUF root keys
+  -v, --verbose             be verbose
 
 Build Flynn images using builder/manifest.json.
 `[1:],
@@ -501,10 +501,6 @@ func (b *Builder) BuildImage(image *Image) error {
 				inputs = append(inputs, i...)
 				run = append(run, fmt.Sprintf("cgo build -o %s %s", l.CGoBuild[dir], filepath.Join("github.com/flynn/flynn", dir)))
 			}
-
-			// set FLYNN_VERSION which will be assigned to the
-			// pkg/version.version constant using ldflags
-			env["FLYNN_VERSION"] = b.version
 		}
 
 		// copy the l.Copy inputs in a predictable order so the
@@ -811,6 +807,13 @@ func (b *Builder) BuildLayer(l *Layer, id, name string, run []string, env map[st
 	job.Config.Args = []string{"/mnt/bin/flynn-builder", "run", "bash", "-exs"}
 	job.Config.Stdin = true
 	cmd.Stdin = strings.NewReader(strings.Join(run, "\n"))
+
+	// set FLYNN_VERSION which will be assigned to the pkg/version.version
+	// constant using ldflags when building Go binaries.
+	//
+	// This is not treated as an input because we only want to build a new
+	// binary with the given version if the build inputs have changed.
+	job.Config.Env["FLYNN_VERSION"] = b.version
 
 	// run the job in the host network to avoid a kernel bug which causes
 	// subsequent jobs to block waiting on the lo network device to become
