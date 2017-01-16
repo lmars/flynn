@@ -16,11 +16,13 @@ OPTIONS:
   -v, --verbose           Be verbose
   -x, --version=VERSION   Explicit version to use [default: dev]
   -t, --tuf-keys=KEYS     TUF root keys
+  --host=HOST             Host to run the build on
   --git-version           Generate the version using git status
 USAGE
 }
 
 main() {
+  local host=""
   local version="dev"
   local verbose=false
   local tuf_keys=""
@@ -30,6 +32,13 @@ main() {
       -h | --help)
         usage
         exit 0
+        ;;
+      --host)
+        if [[ -z "$2" ]]; then
+          fail "--host flag requires an argument"
+        fi
+        host="$2"
+        shift 2
         ;;
       -v | --verbose)
         verbose=true
@@ -93,7 +102,8 @@ main() {
   fi
 
   # bootstrap the cluster if not running
-  if ! curl -fsSLo /dev/null --connect-timeout 1 "http://1.localflynn.com:1111/.well-known/status"; then
+  export DISCOVERD="${DISCOVERD:-"1.localflynn.com:1111"}"
+  if ! curl -fsSLo /dev/null --connect-timeout 1 "${DISCOVERD}/.well-known/status"; then
     info "Flynn cluster not running, bootstrapping"
     "${ROOT}/script/bootstrap-flynn"
   fi
@@ -107,8 +117,8 @@ main() {
   fi
 
   sudo mkdir -p "/var/lib/flynn/layer-cache"
-  export DISCOVERD="http://1.localflynn.com:1111"
   "${flynn_host}" run \
+    --host    "${host}" \
     --bind    "${ROOT}:${ROOT},/var/lib/flynn/layer-cache:/var/lib/flynn/layer-cache" \
     --limits  "temp_disk=1G" \
     --workdir "${ROOT}" \
