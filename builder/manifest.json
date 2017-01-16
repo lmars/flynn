@@ -664,6 +664,20 @@
           }
         }
       ]
+    },
+    {
+      "id": "kvm",
+      "base": "ubuntu-xenial",
+      "layers": [{
+        "script": "util/kvm/img/packages.sh",
+        "inputs": ["util/kvm/start.sh"],
+        "limits": { "temp_disk": "1G" }
+      }],
+      "entrypoint": {
+        "args": [
+          "/bin/start-kvm"
+        ]
+      }
     }
   ],
   "templates": {

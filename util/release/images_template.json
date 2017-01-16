@@ -18,5 +18,6 @@
   "mariadb":        $image_artifact[mariadb],
   "docker-receive": $image_artifact[docker-receive],
   "mongodb":        $image_artifact[mongodb],
-  "builder":        $image_artifact[builder]
+  "builder":        $image_artifact[builder],
+  "kvm":            $image_artifact[kvm]
 }
