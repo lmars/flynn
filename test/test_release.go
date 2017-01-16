@@ -50,7 +50,9 @@ src="${GOPATH}/src/github.com/flynn/flynn"
   script/build-flynn --version "${FLYNN_VERSION}" --tuf-keys "${TUF_ROOT_KEYS}"
 
   # create new image manifests by adding some metadata
-  jq --argjson meta '{"foo":"bar"}' '.[].manifest.meta = $meta' build/images.json > images.json
+  curl -fsSLo jq https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64
+  chmod +x jq
+  ./jq --argjson meta '{"foo":"bar"}' '.[].manifest.meta = $meta' build/images.json > images.json
   mv images.json build/images.json
 
   script/export-components "${src}/test/release"
