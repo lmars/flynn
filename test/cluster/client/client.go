@@ -26,7 +26,7 @@ func NewClient(endpoint string) (*Client, error) {
 		return nil, errors.New("missing TEST_RUNNER_AUTH_KEY environment variable")
 	}
 
-	httpClient := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{ServerName: "ci.flynn.io"}}}
+	httpClient := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{ServerName: "flynn.lmars.net"}}}
 	client := &Client{
 		Client: &httpclient.Client{
 			ErrNotFound: ErrNotFound,
