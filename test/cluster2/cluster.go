@@ -275,6 +275,7 @@ func bootCluster(c *BootConfig, cluster *Cluster, manifest io.Reader, log log15.
 	cmd.Stderr = logW
 	if err := cmd.Run(); err != nil {
 		log.Error("error bootstrapping cluster", "err", err)
+		cluster.CollectLogs()
 		return err
 	}
 
@@ -454,6 +455,45 @@ func (c *Cluster) Destroy() error {
 	}
 
 	return nil
+}
+
+// CollectLogs runs a job which dumps all of the cluster's on-disk logs, which
+// will then be subsequently dumped in DumpLogs when the test run fails.
+func (x *Cluster) CollectLogs() {
+	x.log.Info("collecting cluster logs", "app.name", x.App.Name, "app.id", x.App.ID)
+	hostIDs := make([]string, 0, len(x.Hosts))
+	for _, host := range x.Hosts {
+		hostIDs = append(hostIDs, host.JobID)
+	}
+	cmd := exec.CommandUsingHost(
+		x.clusterHost,
+		x.HostImage,
+		"bash",
+		"-c",
+		fmt.Sprintf("tail -n +1 /var/lib/flynn/{%s}/logs/*.log", strings.Join(hostIDs, ",")),
+	)
+	cmd.Meta = map[string]string{
+		"flynn-controller.app": x.App.ID,
+	}
+	cmd.Mounts = []host.Mount{{
+		Location: "/var/lib/flynn",
+		Target:   "/var/lib/flynn",
+	}}
+	if err := cmd.Start(); err != nil {
+		x.log.Error("error collecting cluster logs", "err", err)
+		return
+	}
+	// wait for the command to finish, but don't allow it to block the
+	// tests for too long
+	done := make(chan struct{})
+	go func() {
+		cmd.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+	}
 }
 
 func controllerClient() (controller.Client, error) {

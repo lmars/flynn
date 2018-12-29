@@ -68,7 +68,7 @@ func (x *Cluster) Destroy() error {
 		if args.Interactive {
 			x.runDebugShell()
 		} else {
-			x.collectDebugInfo()
+			x.CollectLogs()
 		}
 	}
 	Hostnames.Remove(x.t, x.IP)
@@ -117,45 +117,6 @@ func (x *Cluster) setKey(newKey string) {
 	}
 	x.t.Assert(x.config.SaveTo(x.flynnrc), c.IsNil)
 	x.controller.SetKey(newKey)
-}
-
-func (x *Cluster) collectDebugInfo() {
-	cmd := flynnexec.CommandUsingHost(
-		x.Host.Host,
-		x.HostImage,
-		"flynn-host",
-		"collect-debug-info",
-		"--log-dir", filepath.Join("/var/lib/flynn", x.Host.JobID, "logs"),
-	)
-	cmd.Env = map[string]string{"DISCOVERD": fmt.Sprintf("http://%s:1111", x.IP)}
-	cmd.Mounts = []host.Mount{{
-		Location: "/var/lib/flynn",
-		Target:   "/var/lib/flynn",
-	}}
-	// stream output to the log
-	logR, logW := io.Pipe()
-	go func() {
-		buf := bufio.NewReader(logR)
-		for {
-			line, err := buf.ReadString('\n')
-			if err != nil {
-				return
-			}
-			x.log.Info(line[0 : len(line)-1])
-		}
-	}()
-	cmd.Stdout = logW
-	cmd.Stderr = logW
-	// don't allow it to block the tests
-	done := make(chan struct{})
-	go func() {
-		cmd.Run()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(30 * time.Second):
-	}
 }
 
 func (h *Helper) bootCluster(t *c.C, size int) *Cluster {
