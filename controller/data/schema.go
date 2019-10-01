@@ -621,7 +621,7 @@ $$ LANGUAGE plpgsql`,
 		`,
 	)
 	migrations.Add(36,
-		// Add a "type" column to deployments to destinguash between code and
+		// Add a "type" column to deployments to distinguish between code and
 		// config releases (code releases are when the artifacts have changed, all
 		// the rest are config releases)
 		`CREATE TYPE release_type AS ENUM ('code', 'config')`,
