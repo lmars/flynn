@@ -37,7 +37,7 @@ service Router {
   // already been deleted.
   rpc DeleteKey(DeleteKeyRequest) returns (DeleteKeyResponse) {}
 
-  // Updates a managed certificate.
+  // Internal only. Updates a managed certificate.
   rpc UpdateManagedCertificate(UpdateManagedCertificateRequest) returns (UpdateManagedCertificateResponse) {}
 }
 
