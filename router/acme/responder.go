@@ -123,17 +123,17 @@ func (r *Responder) findChallenge(domain, token string) (*acme.Challenge, bool) 
 func (r *Responder) createChallengeRoute(cert *ct.ManagedCertificate, challenge *acme.Challenge) (*router.Route, error) {
 	// add the challenge to r.challenges
 	r.challengeMtx.Lock()
-	challenges, ok := r.challenges[cert.Domain]
+	challenges, ok := r.challenges[cert.Domain()]
 	if !ok {
 		challenges = make(map[string]*acme.Challenge)
-		r.challenges[cert.Domain] = challenges
+		r.challenges[cert.Domain()] = challenges
 	}
 	challenges[challenge.Token] = challenge
 	r.challengeMtx.Unlock()
 
 	// create a route
 	route := (&router.HTTPRoute{
-		Domain:  cert.Domain,
+		Domain:  cert.Domain(),
 		Path:    "/.well-known/acme-challenge/",
 		Service: responderServiceName,
 	}).ToRoute()

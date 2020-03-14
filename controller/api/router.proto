@@ -390,6 +390,38 @@ message StaticCertificate {
 
 // An automatically provisioned TLS certificate.
 message ManagedCertificate {
+  // A domain validation method.
+  enum ValidationMethod {
+    // The default value.
+    METHOD_UNSPECIFIED = 0;
+
+    // Automatically managed domain validation, the domain must have CNAME
+    // or A/AAAA records pointing at the Flynn cluster's ports 80 and 443 for
+    // validation to succeed.
+    METHOD_AUTO = 1;
+  }
+
+  // A single DNS name that will be a Subject Alternative Name in the
+  // certificate.
+  message Domain {
+    // Required. The domain name to include in the certificate.
+    string domain = 1;
+
+    // The validation method to use to confirm domain control.
+    ValidationMethod validation_method = 2;
+  }
+
+  // Configuration for the certificate.
+  message Config {
+    // Required. One or more DNS names to include in the certificate as Subject
+    // Alternative Names.
+    repeated Domain domains = 1;
+
+    // The key algorithm to use for the certificate. If unspecified, defaults to
+    // KEY_ALG_ECC_P256.
+    Key.Algorithm key_algorithm = 2;
+  }
+
   // The issuance status of the managed certificate.
   enum Status {
     // Unused/invalid default value.
@@ -415,21 +447,25 @@ message ManagedCertificate {
     string detail = 2;
   }
 
-  // The domain included in this certificate as a Subject Alternative Name.
-  string domain = 1;
+  // The immutable list of domains included in this certificate as Subject
+  // Alternative Names.
+  repeated string domains = 1;
+
+  // Configuration for the certificate.
+  Config config = 2;
 
   // The certificate issuance status. The initial value is PENDING.
-  Status status = 2;
+  Status status = 3;
 
   // Errors encountered during issuance, if any. This will only be populated if
   // the status is FAILED.
-  repeated Error errors = 3;
+  repeated Error errors = 4;
 
   // The current certificate details. This will not be set until the certificate
   // is issued.
-  StaticCertificate certificate = 4;
+  StaticCertificate certificate = 5;
 
   // The timestamp of the last modification of this resource. It is modified
   // each time at least one field is changed.
-  google.protobuf.Timestamp update_time = 5;
+  google.protobuf.Timestamp update_time = 6;
 }

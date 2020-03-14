@@ -241,10 +241,10 @@ func (s *Service) Start() error {
 						continue
 					}
 					s.handlingMtx.Lock()
-					if _, ok := s.handling[cert.Domain]; !ok {
-						s.log.Info("handling pending managed certificate", "domain", cert.Domain)
+					if _, ok := s.handling[cert.ID().String()]; !ok {
+						s.log.Info("handling pending managed certificate", "domain", cert.Domain())
 						go s.Handle(cert)
-						s.handling[cert.Domain] = struct{}{}
+						s.handling[cert.ID().String()] = struct{}{}
 					}
 					s.handlingMtx.Unlock()
 				case <-s.stop:
@@ -281,7 +281,7 @@ func (s *Service) Handle(cert *ct.ManagedCertificate) {
 	// cleanup s.handling once done
 	defer func() {
 		s.handlingMtx.Lock()
-		delete(s.handling, cert.Domain)
+		delete(s.handling, cert.ID().String())
 		s.handlingMtx.Unlock()
 	}()
 
@@ -322,7 +322,7 @@ func (s *Service) Handle(cert *ct.ManagedCertificate) {
 }
 
 func (s *Service) getOrCreateOrder(cert *ct.ManagedCertificate) (*acme.Order, error) {
-	log := s.log.New("domain", cert.Domain)
+	log := s.log.New("domain", cert.Domain())
 
 	// if the managed certificate already has an OrderURL, fetch it and
 	// check if it's valid
@@ -341,7 +341,7 @@ func (s *Service) getOrCreateOrder(cert *ct.ManagedCertificate) (*acme.Order, er
 	// the managed certificate either has no OrderURL, or the order the
 	// OrderURL points to is not valid, so create a new order
 	log.Info("creating new order")
-	ids := []acme.Identifier{{Type: "dns", Value: cert.Domain}}
+	ids := []acme.Identifier{{Type: "dns", Value: cert.Domain()}}
 	order, err := s.client.NewOrder(s.account, ids)
 	if err != nil {
 		log.Error("error creating new order", "err", err)
@@ -359,7 +359,7 @@ func (s *Service) getOrCreateOrder(cert *ct.ManagedCertificate) (*acme.Order, er
 }
 
 func (s *Service) getHTTP01Challenge(cert *ct.ManagedCertificate, order *acme.Order) *acme.Challenge {
-	log := s.log.New("domain", cert.Domain)
+	log := s.log.New("domain", cert.Domain())
 
 	log.Info("getting http-01 challenge")
 	for _, authURL := range order.Authorizations {
@@ -377,7 +377,7 @@ func (s *Service) getHTTP01Challenge(cert *ct.ManagedCertificate, order *acme.Or
 }
 
 func (s *Service) satisfyHTTP01Challenge(cert *ct.ManagedCertificate, challenge *acme.Challenge) error {
-	log := s.log.New("domain", cert.Domain, "challenge.token", challenge.Token)
+	log := s.log.New("domain", cert.Domain(), "challenge.token", challenge.Token)
 
 	log.Info("configuring http-01 challenge response")
 	return s.responder.RespondHTTP01(cert, challenge, func() error {
@@ -402,9 +402,10 @@ func (s *Service) satisfyHTTP01Challenge(cert *ct.ManagedCertificate, challenge 
 }
 
 func (s *Service) finalizeOrder(cert *ct.ManagedCertificate, order *acme.Order) (*acme.Order, []byte, error) {
-	log := s.log.New("domain", cert.Domain)
+	log := s.log.New("domain", cert.Domain())
 
 	log.Info("generating a CSR")
+	// TODO: check cert.Config.KeyAlgo
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		log.Error("error generating private key", "err", err)
@@ -419,7 +420,7 @@ func (s *Service) finalizeOrder(cert *ct.ManagedCertificate, order *acme.Order) 
 		SignatureAlgorithm: x509.ECDSAWithSHA256,
 		PublicKeyAlgorithm: x509.ECDSA,
 		PublicKey:          key.Public(),
-		DNSNames:           []string{cert.Domain},
+		DNSNames:           []string{cert.Domain()},
 	}
 	csrDER, err := x509.CreateCertificateRequest(rand.Reader, csrTmpl, key)
 	if err != nil {
@@ -443,7 +444,7 @@ func (s *Service) finalizeOrder(cert *ct.ManagedCertificate, order *acme.Order) 
 }
 
 func (s *Service) setCertificate(cert *ct.ManagedCertificate, keyDER []byte, order *acme.Order) error {
-	log := s.log.New("domain", cert.Domain)
+	log := s.log.New("domain", cert.Domain())
 
 	log.Info("fetching issued certificate")
 	issuedCerts, err := s.client.FetchCertificates(s.account, order.Certificate)
@@ -471,7 +472,7 @@ func (s *Service) setCertificate(cert *ct.ManagedCertificate, keyDER []byte, ord
 
 func (s *Service) setFailed(cert *ct.ManagedCertificate, format string, v ...interface{}) {
 	detail := fmt.Sprintf(format, v...)
-	s.log.Info("setting certificate status to failed", "domain", cert.Domain, "detail", detail)
+	s.log.Info("setting certificate status to failed", "domain", cert.Domain(), "detail", detail)
 	cert.Status = ct.ManagedCertificateStatusFailed
 	cert.AddError("", detail)
 	s.controller.UpdateManagedCertificate(cert)

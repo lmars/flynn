@@ -979,7 +979,8 @@ CREATE TABLE managed_certificate_statuses (
 INSERT INTO managed_certificate_statuses (name) VALUES ('pending'), ('issued'), ('failed');
 
 CREATE TABLE managed_certificates (
-  domain         text        PRIMARY KEY NOT NULL,
+  id             bytea       PRIMARY KEY,
+  config         jsonb       NOT NULL DEFAULT '{}'::jsonb,
   certificate_id bytea       REFERENCES static_certificates (id),
   status         text        NOT NULL REFERENCES managed_certificate_statuses (name),
   errors         jsonb       NOT NULL DEFAULT '[]'::jsonb,
@@ -989,7 +990,7 @@ CREATE TABLE managed_certificates (
   deleted_at     timestamptz
 );
 
-ALTER TABLE http_routes ADD COLUMN managed_certificate_domain text REFERENCES managed_certificates (domain);
+ALTER TABLE http_routes ADD COLUMN managed_certificate_id bytea REFERENCES managed_certificates (id);
 
 INSERT INTO event_types (name) VALUES ('managed_certificate');
 	`)

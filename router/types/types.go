@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	cjson "github.com/tent/canonical-json-go"
 )
 
 // ID is a slice of bytes used to identify TLS certificates and keys that
@@ -62,6 +64,17 @@ func (id *ID) UnmarshalJSON(data []byte) error {
 	}
 	*id = newID
 	return nil
+}
+
+type ManagedCertificate struct {
+	Domains []string `json:"domains,omitempty"`
+	KeyAlgo KeyAlgo  `json:"key_algo,omitempty"`
+}
+
+func (m *ManagedCertificate) ID() ID {
+	data, _ := cjson.Marshal(m)
+	digest := sha256.Sum256(data)
+	return ID(digest[:])
 }
 
 // Certificate describes a TLS certificate for one or more routes
@@ -221,6 +234,9 @@ func (c *Certificate) KeyPEM() string {
 type KeyAlgo string
 
 const (
+	// KeyAlgo_UNKNOWN represents an unknown key algorithm
+	KeyAlgo_UNKNOWN KeyAlgo = ""
+
 	// KeyAlgo_ECC_P256 represents the NIST ECC P-256 curve
 	KeyAlgo_ECC_P256 KeyAlgo = "ecc-p256"
 
@@ -413,9 +429,8 @@ type Route struct {
 	// Certificate contains TLSCert and TLSKey
 	Certificate *Certificate `json:"certificate,omitempty"`
 
-	// ManagedCertificateDomain is the domain of the route's associated
-	// managed certificate
-	ManagedCertificateDomain *string `json:"managed_certificate_domain,omitempty"`
+	// ManagedCertificate is configuration for the route's managed certificate.
+	ManagedCertificate *ManagedCertificate `json:"managed_certificate,omitempty"`
 
 	// Deprecated in favor of Certificate
 	LegacyTLSCert string `json:"tls_cert,omitempty"`

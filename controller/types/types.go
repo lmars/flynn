@@ -802,13 +802,27 @@ const (
 )
 
 type ManagedCertificate struct {
-	Domain      string                     `json:"domain,omitempty"`
+	Config      *router.ManagedCertificate `json:"config,omitempty"`
 	OrderURL    string                     `json:"order_url,omitempty"`
 	Status      ManagedCertificateStatus   `json:"status,omitempty"`
 	Errors      []*ManagedCertificateError `json:"errors,omitempty"`
 	Certificate *router.Certificate        `json:"certificate,omitempty"`
 	CreatedAt   *time.Time                 `json:"created_at,omitempty"`
 	UpdatedAt   *time.Time                 `json:"updated_at,omitempty"`
+}
+
+func (m *ManagedCertificate) ID() router.ID {
+	if m.Config == nil {
+		return nil
+	}
+	return m.Config.ID()
+}
+
+func (m *ManagedCertificate) Domain() string {
+	if m.Config == nil || len(m.Config.Domains) == 0 {
+		return ""
+	}
+	return m.Config.Domains[0]
 }
 
 func (c *ManagedCertificate) AddError(typ, detail string) {

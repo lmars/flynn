@@ -100,7 +100,7 @@ var preparedStatements = map[string]string{
 	"http_route_list_for_update":                httpRouteListForUpdateQuery,
 	"http_route_list_by_parent_ref":             httpRouteListByParentRefQuery,
 	"http_route_list__for_update_by_parent_ref": httpRouteListForUpdateByParentRefQuery,
-	"http_route_list_by_managed_cert_domain":    httpRouteListByManagedCertDomainQuery,
+	"http_route_list_by_managed_cert_id":        httpRouteListByManagedCertIDQuery,
 	"http_route_insert":                         httpRouteInsertQuery,
 	"http_route_select":                         httpRouteSelectQuery,
 	"http_route_update":                         httpRouteUpdateQuery,
@@ -640,43 +640,47 @@ RETURNING created_at, updated_at`
 	volumeDecommissionQuery = `
 UPDATE volumes SET updated_at = now(), decommissioned_at = now() WHERE app_id = $1 AND volume_id = $2 RETURNING updated_at, decommissioned_at`
 	httpRouteListQuery = `
-SELECT r.id, r.parent_ref, r.service, r.port, r.leader, r.drain_backends, r.domain, r.sticky, r.path, r.disable_keep_alives, r.managed_certificate_domain, r.created_at, r.updated_at, c.id, ARRAY(SELECT http_route_id FROM route_certificates WHERE certificate_id = c.id), c.chain, k.key, c.strict, c.created_at, c.updated_at FROM http_routes as r
+SELECT r.id, r.parent_ref, r.service, r.port, r.leader, r.drain_backends, r.domain, r.sticky, r.path, r.disable_keep_alives, m.config, r.created_at, r.updated_at, c.id, ARRAY(SELECT http_route_id FROM route_certificates WHERE certificate_id = c.id), c.chain, k.key, c.strict, c.created_at, c.updated_at FROM http_routes as r
 LEFT OUTER JOIN route_certificates AS rc on r.id = rc.http_route_id
 LEFT OUTER JOIN static_certificates AS c ON c.id = rc.certificate_id
 LEFT OUTER JOIN tls_keys AS k ON k.id = c.key_id
+LEFT OUTER JOIN managed_certificates AS m ON m.id = r.managed_certificate_id
 WHERE r.deleted_at IS NULL
 ORDER BY r.domain, r.path`
 	httpRouteListForUpdateQuery   = httpRouteListQuery + " FOR UPDATE OF r"
 	httpRouteListByParentRefQuery = `
-SELECT r.id, r.parent_ref, r.service, r.port, r.leader, r.drain_backends, r.domain, r.sticky, r.path, r.disable_keep_alives, r.managed_certificate_domain, r.created_at, r.updated_at, c.id, ARRAY(SELECT http_route_id FROM route_certificates WHERE certificate_id = c.id), c.chain, k.key, c.strict, c.created_at, c.updated_at FROM http_routes as r
+SELECT r.id, r.parent_ref, r.service, r.port, r.leader, r.drain_backends, r.domain, r.sticky, r.path, r.disable_keep_alives, m.config, r.created_at, r.updated_at, c.id, ARRAY(SELECT http_route_id FROM route_certificates WHERE certificate_id = c.id), c.chain, k.key, c.strict, c.created_at, c.updated_at FROM http_routes as r
 LEFT OUTER JOIN route_certificates AS rc on r.id = rc.http_route_id
 LEFT OUTER JOIN static_certificates AS c ON c.id = rc.certificate_id
 LEFT OUTER JOIN tls_keys AS k ON k.id = c.key_id
+LEFT OUTER JOIN managed_certificates AS m ON m.id = r.managed_certificate_id
 WHERE r.parent_ref = $1 AND r.deleted_at IS NULL
 ORDER BY r.domain, r.path`
 	httpRouteListForUpdateByParentRefQuery = httpRouteListByParentRefQuery + " FOR UPDATE OF r"
-	httpRouteListByManagedCertDomainQuery  = `
-SELECT r.id, r.parent_ref, r.service, r.port, r.leader, r.drain_backends, r.domain, r.sticky, r.path, r.disable_keep_alives, r.managed_certificate_domain, r.created_at, r.updated_at, c.id, ARRAY(SELECT http_route_id FROM route_certificates WHERE certificate_id = c.id), c.chain, k.key, c.strict, c.created_at, c.updated_at FROM http_routes as r
+	httpRouteListByManagedCertIDQuery      = `
+SELECT r.id, r.parent_ref, r.service, r.port, r.leader, r.drain_backends, r.domain, r.sticky, r.path, r.disable_keep_alives, m.config, r.created_at, r.updated_at, c.id, ARRAY(SELECT http_route_id FROM route_certificates WHERE certificate_id = c.id), c.chain, k.key, c.strict, c.created_at, c.updated_at FROM http_routes as r
 LEFT OUTER JOIN route_certificates AS rc on r.id = rc.http_route_id
 LEFT OUTER JOIN static_certificates AS c ON c.id = rc.certificate_id
 LEFT OUTER JOIN tls_keys AS k ON k.id = c.key_id
-WHERE r.managed_certificate_domain = $1 AND r.deleted_at IS NULL
+LEFT OUTER JOIN managed_certificates AS m ON m.id = r.managed_certificate_id
+WHERE r.managed_certificate_id = $1 AND r.deleted_at IS NULL
 ORDER BY r.domain, r.path`
 	httpRouteInsertQuery = `
-INSERT INTO http_routes (parent_ref, service, port, leader, drain_backends, domain, sticky, path, disable_keep_alives, managed_certificate_domain)
+INSERT INTO http_routes (parent_ref, service, port, leader, drain_backends, domain, sticky, path, disable_keep_alives, managed_certificate_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING id, path, created_at, updated_at`
 	httpRouteSelectQuery = `
-SELECT r.id, r.parent_ref, r.service, r.port, r.leader, r.drain_backends, r.domain, r.sticky, r.path, r.disable_keep_alives, r.managed_certificate_domain, r.created_at, r.updated_at, c.id, ARRAY(SELECT http_route_id FROM route_certificates WHERE certificate_id = c.id), c.chain, k.key, c.strict, c.created_at, c.updated_at FROM http_routes as r
+SELECT r.id, r.parent_ref, r.service, r.port, r.leader, r.drain_backends, r.domain, r.sticky, r.path, r.disable_keep_alives, m.config, r.created_at, r.updated_at, c.id, ARRAY(SELECT http_route_id FROM route_certificates WHERE certificate_id = c.id), c.chain, k.key, c.strict, c.created_at, c.updated_at FROM http_routes as r
 LEFT OUTER JOIN route_certificates AS rc on r.id = rc.http_route_id
 LEFT OUTER JOIN static_certificates AS c ON c.id = rc.certificate_id
 LEFT OUTER JOIN tls_keys AS k ON k.id = c.key_id
+LEFT OUTER JOIN managed_certificates AS m ON m.id = r.managed_certificate_id
 WHERE r.id = $1 AND r.deleted_at IS NULL`
 	httpRouteUpdateQuery = `
 UPDATE http_routes as r
-SET parent_ref = $1, service = $2, port = $3, leader = $4, sticky = $5, path = $6, drain_backends = $7, disable_keep_alives = $8, managed_certificate_domain = $9
+SET parent_ref = $1, service = $2, port = $3, leader = $4, sticky = $5, path = $6, drain_backends = $7, disable_keep_alives = $8, managed_certificate_id = $9
 WHERE id = $10 AND domain = $11 AND deleted_at IS NULL
-RETURNING r.id, r.parent_ref, r.service, r.port, r.leader, r.drain_backends, r.domain, r.sticky, r.path, r.disable_keep_alives, r.managed_certificate_domain, r.created_at, r.updated_at`
+RETURNING r.id, r.parent_ref, r.service, r.port, r.leader, r.drain_backends, r.domain, r.sticky, r.path, r.disable_keep_alives, r.created_at, r.updated_at`
 	httpRouteDeleteQuery = `
 UPDATE http_routes SET deleted_at = now()
 WHERE id = $1`
@@ -729,16 +733,16 @@ RETURNING created_at`
 	tlsKeyDeleteQuery = `
 DELETE FROM tls_keys WHERE id = $1`
 	managedCertificateSelectQuery = `
-SELECT m.domain, m.order_url, m.status, m.errors, c.id, ARRAY(SELECT http_route_id FROM route_certificates WHERE certificate_id = c.id), c.chain, k.key, c.strict, c.created_at, c.updated_at, m.created_at, m.updated_at FROM managed_certificates AS m
+SELECT m.config, m.order_url, m.status, m.errors, c.id, ARRAY(SELECT http_route_id FROM route_certificates WHERE certificate_id = c.id), c.chain, k.key, c.strict, c.created_at, c.updated_at, m.created_at, m.updated_at FROM managed_certificates AS m
 LEFT OUTER JOIN static_certificates AS c ON c.id = m.certificate_id
 LEFT OUTER JOIN tls_keys AS k ON k.id = c.key_id
-WHERE m.domain = $1 AND m.deleted_at IS NULL`
+WHERE m.id = $1 AND m.deleted_at IS NULL`
 	managedCertificateInsertQuery = `
-INSERT INTO managed_certificates (domain, status)
-VALUES ($1, $2)
+INSERT INTO managed_certificates (id, config, status)
+VALUES ($1, $2, $3)
 RETURNING created_at, updated_at`
 	managedCertificateUpdateQuery = `
 UPDATE managed_certificates SET certificate_id = $1, status = $2, errors = $3
-WHERE domain = $4 AND deleted_at IS NULL
+WHERE id = $4 AND deleted_at IS NULL
 RETURNING created_at, updated_at`
 )

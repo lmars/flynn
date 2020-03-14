@@ -770,8 +770,10 @@ func NewRoute(from *router.Route) *Route {
 			Domain: from.Domain,
 			Path:   from.Path,
 		}}
-		if domain := from.ManagedCertificateDomain; domain != nil {
-			managedCert := &ManagedCertificate{Domain: *domain}
+		if config := from.ManagedCertificate; config != nil {
+			managedCert := &ManagedCertificate{
+				Config: NewManagedCertificateConfig(config),
+			}
 			if from.Certificate != nil {
 				managedCert.Certificate = NewStaticCertificate(from.Certificate)
 			}
@@ -832,7 +834,9 @@ func (r *Route) RouterType() *router.Route {
 					Chain: v.Static.Chain,
 				}
 			case *Certificate_Managed:
-				route.ManagedCertificateDomain = &v.Managed.Domain
+				if config := v.Managed.Config; config != nil {
+					route.ManagedCertificate = config.RouterType()
+				}
 				if v.Managed.Certificate != nil {
 					route.Certificate = &router.Certificate{
 						Chain: v.Managed.Certificate.Chain,
@@ -853,14 +857,7 @@ func NewKey(from *router.Key) *Key {
 		Name:       path.Join("tls-keys", from.ID.String()),
 		CreateTime: NewTimestamp(&from.CreatedAt),
 	}
-	switch from.Algorithm {
-	case router.KeyAlgo_ECC_P256:
-		key.Algorithm = Key_KEY_ALG_ECC_P256
-	case router.KeyAlgo_RSA_2048:
-		key.Algorithm = Key_KEY_ALG_RSA_2048
-	case router.KeyAlgo_RSA_4096:
-		key.Algorithm = Key_KEY_ALG_RSA_4096
-	}
+	key.Algorithm = NewKeyAlgorithm(from.Algorithm)
 	if len(from.Certificates) > 0 {
 		key.Certificates = make([]string, len(from.Certificates))
 		for i, certID := range from.Certificates {
@@ -868,6 +865,32 @@ func NewKey(from *router.Key) *Key {
 		}
 	}
 	return key
+}
+
+func NewKeyAlgorithm(keyAlgo router.KeyAlgo) Key_Algorithm {
+	switch keyAlgo {
+	case router.KeyAlgo_ECC_P256:
+		return Key_KEY_ALG_ECC_P256
+	case router.KeyAlgo_RSA_2048:
+		return Key_KEY_ALG_RSA_2048
+	case router.KeyAlgo_RSA_4096:
+		return Key_KEY_ALG_RSA_4096
+	default:
+		return Key_KEY_ALG_UNSPECIFIED
+	}
+}
+
+func (k Key_Algorithm) RouterType() router.KeyAlgo {
+	switch k {
+	case Key_KEY_ALG_ECC_P256:
+		return router.KeyAlgo_ECC_P256
+	case Key_KEY_ALG_RSA_2048:
+		return router.KeyAlgo_RSA_2048
+	case Key_KEY_ALG_RSA_4096:
+		return router.KeyAlgo_RSA_4096
+	default:
+		return router.KeyAlgo_UNKNOWN
+	}
 }
 
 func NewGetKeyRequest(id router.ID) *GetKeyRequest {
@@ -934,14 +957,7 @@ func NewStaticCertificate(from *router.Certificate) (cert *StaticCertificate) {
 		cert.StatusDetail = err.Error()
 		return
 	}
-	switch keyAlgo {
-	case router.KeyAlgo_ECC_P256:
-		cert.KeyAlgorithm = Key_KEY_ALG_ECC_P256
-	case router.KeyAlgo_RSA_2048:
-		cert.KeyAlgorithm = Key_KEY_ALG_RSA_2048
-	case router.KeyAlgo_RSA_4096:
-		cert.KeyAlgorithm = Key_KEY_ALG_RSA_4096
-	}
+	cert.KeyAlgorithm = NewKeyAlgorithm(keyAlgo)
 
 	// set the Domains from SAN values
 	cert.Domains = leafCert.DNSNames
@@ -1042,8 +1058,11 @@ func NewStaticCertificate(from *router.Certificate) (cert *StaticCertificate) {
 }
 
 func NewManagedCertificate(from *ct.ManagedCertificate) *ManagedCertificate {
-	cert := &ManagedCertificate{
-		Domain: from.Domain,
+	cert := &ManagedCertificate{}
+	if from.Config != nil {
+		cert.Domains = from.Config.Domains
+
+		cert.Config = NewManagedCertificateConfig(from.Config)
 	}
 	switch from.Status {
 	case ct.ManagedCertificateStatusPending:
@@ -1068,9 +1087,35 @@ func NewManagedCertificate(from *ct.ManagedCertificate) *ManagedCertificate {
 	return cert
 }
 
+func NewManagedCertificateConfig(from *router.ManagedCertificate) *ManagedCertificate_Config {
+	config := &ManagedCertificate_Config{
+		Domains:      make([]*ManagedCertificate_Domain, len(from.Domains)),
+		KeyAlgorithm: NewKeyAlgorithm(from.KeyAlgo),
+	}
+	for i, domain := range from.Domains {
+		config.Domains[i] = &ManagedCertificate_Domain{
+			Domain:           domain,
+			ValidationMethod: ManagedCertificate_METHOD_AUTO,
+		}
+	}
+	return config
+}
+
+func (c *ManagedCertificate_Config) RouterType() *router.ManagedCertificate {
+	cert := &router.ManagedCertificate{
+		Domains: make([]string, len(c.Domains)),
+	}
+	for i, domain := range c.Domains {
+		cert.Domains[i] = domain.Domain
+	}
+	cert.KeyAlgo = c.KeyAlgorithm.RouterType()
+	return cert
+}
+
 func (c *ManagedCertificate) ControllerType() *ct.ManagedCertificate {
-	cert := &ct.ManagedCertificate{
-		Domain: c.Domain,
+	cert := &ct.ManagedCertificate{}
+	if c.Config != nil {
+		cert.Config = c.Config.RouterType()
 	}
 	switch c.Status {
 	case ManagedCertificate_STATUS_PENDING:

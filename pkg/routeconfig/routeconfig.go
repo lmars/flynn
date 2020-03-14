@@ -209,6 +209,9 @@ def main(ctx):
 {{ .Certificate.ChainPEM }}
 	'''),
 	{{- end }}
+	{{- if .ManagedCertificate }}
+	certficate = config.managed_certificate("{{ index .ManagedCertificate.Domains 0 }}"),
+	{{- end }}
 	{{- if .Sticky }}
 	sticky = True,
 	{{- end }}
@@ -300,7 +303,15 @@ def static_certificate(chainPEM):
 def managed_certificate(domain):
   return apiv1.Certificate(
     managed = apiv1.ManagedCertificate(
-      domain = domain,
+      config = apiv1.ManagedCertificate.Config(
+	domains = [
+	  apiv1.ManagedCertificate.Domain(
+	    domain = domain,
+	    validation_method = apiv1.ManagedCertificate.ValidationMethod.METHOD_AUTO,
+	  )
+	],
+	key_algorithm = apiv1.Key.Algorithm.KEY_ALG_ECC_P256,
+      ),
     ),
   )
 

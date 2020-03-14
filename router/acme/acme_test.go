@@ -72,7 +72,7 @@ func TestHTTP01Challenge(t *testing.T) {
 
 	// add a managed certificate
 	domain := "example.com"
-	controller.addCert(&ct.ManagedCertificate{Domain: domain})
+	controller.addCert(domain)
 
 	// wait for the managed certificate to be issued
 	var managedCert *ct.ManagedCertificate
@@ -84,7 +84,7 @@ loop:
 			if !ok {
 				t.Fatalf("error waiting for certificate events: %s", stream.Err())
 			}
-			if cert.Domain == domain && cert.Status == ct.ManagedCertificateStatusIssued {
+			if cert.Domain() == domain && cert.Status == ct.ManagedCertificateStatusIssued {
 				managedCert = cert
 				break loop
 			}
@@ -236,9 +236,14 @@ func (t *testController) DeleteRoute(appID string, routeID string) error {
 	return nil
 }
 
-func (t *testController) addCert(cert *ct.ManagedCertificate) {
-	cert.Status = ct.ManagedCertificateStatusPending
-	t.UpdateManagedCertificate(cert)
+func (t *testController) addCert(domain string) {
+	t.UpdateManagedCertificate(&ct.ManagedCertificate{
+		Status: ct.ManagedCertificateStatusPending,
+		Config: &router.ManagedCertificate{
+			Domains: []string{domain},
+			KeyAlgo: router.KeyAlgo_ECC_P256,
+		},
+	})
 }
 
 func (t *testController) Close() {
