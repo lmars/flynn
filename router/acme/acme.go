@@ -6,7 +6,6 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -420,7 +419,6 @@ func (s *Service) finalizeOrder(cert *ct.ManagedCertificate, order *acme.Order) 
 		SignatureAlgorithm: x509.ECDSAWithSHA256,
 		PublicKeyAlgorithm: x509.ECDSA,
 		PublicKey:          key.Public(),
-		Subject:            pkix.Name{CommonName: cert.Domain},
 		DNSNames:           []string{cert.Domain},
 	}
 	csrDER, err := x509.CreateCertificateRequest(rand.Reader, csrTmpl, key)
