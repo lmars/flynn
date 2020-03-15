@@ -104,6 +104,8 @@ type Client interface {
 	StreamSinks(since *time.Time, output chan *ct.Sink) (stream.Stream, error)
 	StreamManagedCertificates(output chan *ct.ManagedCertificate) (stream.Stream, error)
 	UpdateManagedCertificate(managedCert *ct.ManagedCertificate) error
+	CreateACMEAccount(account *ct.ACMEAccount, keyDER []byte) error
+	GetACMEAccountKey(accountID router.ID) (keyDER []byte, err error)
 	Invoke(method string, in, out proto.Message) error
 }
 

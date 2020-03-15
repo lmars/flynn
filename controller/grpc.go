@@ -1060,3 +1060,24 @@ func (g *grpcAPI) UpdateManagedCertificate(ctx context.Context, req *api.UpdateM
 		Certificate: api.NewManagedCertificate(managedCert),
 	}, nil
 }
+
+func (g *grpcAPI) CreateACMEAccount(ctx context.Context, req *api.CreateACMEAccountRequest) (*api.CreateACMEAccountResponse, error) {
+	account := req.Account.ControllerType()
+	if err := g.routeRepo.CreateACMEAccount(account, req.PrivateKey); err != nil {
+		return nil, err
+	}
+	return &api.CreateACMEAccountResponse{
+		Account: api.NewACMEAccount(account),
+	}, nil
+}
+
+func (g *grpcAPI) GetACMEAccountKey(ctx context.Context, req *api.GetACMEAccountKeyRequest) (*api.GetACMEAccountKeyResponse, error) {
+	account := (&api.ACMEAccount{Name: req.Name}).ControllerType()
+	key, err := g.routeRepo.GetACMEAccountKey(account.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &api.GetACMEAccountKeyResponse{
+		PrivateKey: key,
+	}, nil
+}

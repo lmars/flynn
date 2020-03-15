@@ -803,6 +803,7 @@ const (
 
 type ManagedCertificate struct {
 	Config      *router.ManagedCertificate `json:"config,omitempty"`
+	Account     ACMEAccount                `json:"account,omitempty"`
 	OrderURL    string                     `json:"order_url,omitempty"`
 	Status      ManagedCertificateStatus   `json:"status,omitempty"`
 	Errors      []*ManagedCertificateError `json:"errors,omitempty"`
@@ -835,4 +836,12 @@ func (c *ManagedCertificate) AddError(typ, detail string) {
 type ManagedCertificateError struct {
 	Type   string `json:"type"`
 	Detail string `json:"detail"`
+}
+
+type ACMEAccount struct {
+	ID                   router.ID  `json:"id,omitempty"`
+	DirectoryURL         string     `json:"directory_url,omitempty"`
+	Contacts             []string   `json:"contacts,omitempty"`
+	TermsOfServiceAgreed bool       `json:"terms_of_service_agreed,omitempty"`
+	CreatedAt            *time.Time `json:"created_at,omitempty"`
 }

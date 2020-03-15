@@ -987,6 +987,24 @@ func (c *Client) UpdateManagedCertificate(managedCert *ct.ManagedCertificate) er
 	return c.Invoke("flynn.api.v1.Router/UpdateManagedCertificate", &req, &res)
 }
 
+func (c *Client) CreateACMEAccount(account *ct.ACMEAccount, keyDER []byte) error {
+	req := api.CreateACMEAccountRequest{
+		Account:    api.NewACMEAccount(account),
+		PrivateKey: keyDER,
+	}
+	var res api.CreateACMEAccountResponse
+	return c.Invoke("flynn.api.v1.Router/CreateACMEAccount", &req, &res)
+}
+
+func (c *Client) GetACMEAccountKey(accountID router.ID) ([]byte, error) {
+	req := api.NewGetACMEAccountKeyRequest(accountID)
+	var res api.GetACMEAccountKeyResponse
+	if err := c.Invoke("flynn.api.v1.Router/GetACMEAccountKey", req, &res); err != nil {
+		return nil, err
+	}
+	return res.PrivateKey, nil
+}
+
 // Invoke invokes the given gRPC method using the grpc-web protocol.
 //
 // See https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-WEB.md

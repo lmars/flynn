@@ -39,6 +39,12 @@ service Router {
 
   // Internal only. Updates a managed certificate.
   rpc UpdateManagedCertificate(UpdateManagedCertificateRequest) returns (UpdateManagedCertificateResponse) {}
+
+  // Create an ACME account
+  rpc CreateACMEAccount(CreateACMEAccountRequest) returns (CreateACMEAccountResponse) {}
+
+  // Internal only. Get an ACME Account key
+  rpc GetACMEAccountKey(GetACMEAccountKeyRequest) returns (GetACMEAccountKeyResponse) {}
 }
 
 // SetRoutesRequest is a request to set a list of app routes.
@@ -144,6 +150,24 @@ message UpdateManagedCertificateRequest {
 message UpdateManagedCertificateResponse {
   // The managed certificate that was updated.
   ManagedCertificate certificate = 1;
+}
+
+message CreateACMEAccountRequest {
+  ACMEAccount account = 1;
+
+  bytes private_key = 2;
+}
+
+message CreateACMEAccountResponse {
+  ACMEAccount account = 1;
+}
+
+message GetACMEAccountKeyRequest {
+  string name = 1;
+}
+
+message GetACMEAccountKeyResponse {
+  bytes private_key = 1;
 }
 
 // AppRoutes is a list of desired routes for an app.
@@ -468,4 +492,14 @@ message ManagedCertificate {
   // The timestamp of the last modification of this resource. It is modified
   // each time at least one field is changed.
   google.protobuf.Timestamp update_time = 6;
+}
+
+message ACMEAccount {
+  string name = 1;
+
+  string directory_url = 2;
+
+  repeated string contacts = 3;
+
+  bool terms_of_service_agreed = 4;
 }

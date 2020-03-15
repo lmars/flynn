@@ -19,7 +19,7 @@ import (
 const (
 	responderAppName     = "router"
 	responderServiceName = "router-acme-responder"
-	defaultResponderPort = "8080"
+	defaultResponderPort = 8080
 )
 
 // Responder responds to ACME authz challenges

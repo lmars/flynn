@@ -249,10 +249,17 @@ const (
 
 // NewKeyFromPEM returns the key contained in the given PEM-encoded data.
 func NewKeyFromPEM(keyPEM []byte) (*Key, error) {
-	var (
-		keyDER  []byte
-		skipped []string
-	)
+	keyDER, err := ParsePrivateKeyPEM(keyPEM)
+	if err != nil {
+		return nil, err
+	}
+	return NewKey(keyDER)
+}
+
+// ParsePrivateKeyPEM returns the DER-encoded private key contained in the
+// given PEM-encoded data.
+func ParsePrivateKeyPEM(keyPEM []byte) ([]byte, error) {
+	var skipped []string
 	for {
 		var block *pem.Block
 		block, keyPEM = pem.Decode(keyPEM)
@@ -260,18 +267,14 @@ func NewKeyFromPEM(keyPEM []byte) (*Key, error) {
 			break
 		}
 		if block.Type == "PRIVATE KEY" || strings.HasSuffix(block.Type, " PRIVATE KEY") {
-			keyDER = block.Bytes
-			break
+			return block.Bytes, nil
 		}
 		skipped = append(skipped, block.Type)
 	}
-	if keyDER == nil {
-		if len(skipped) > 0 {
-			return nil, fmt.Errorf("missing PRIVATE KEY block in PEM input, got %s", strings.Join(skipped, ", "))
-		}
-		return nil, errors.New("invalid PEM data")
+	if len(skipped) > 0 {
+		return nil, fmt.Errorf("missing PRIVATE KEY block in PEM input, got %s", strings.Join(skipped, ", "))
 	}
-	return NewKey(keyDER)
+	return nil, errors.New("invalid PEM data")
 }
 
 // NewKey parses the private key contained in the given DER-encoded data.

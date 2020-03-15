@@ -1141,3 +1141,30 @@ func (c *ManagedCertificate) ControllerType() *ct.ManagedCertificate {
 	}
 	return cert
 }
+
+func NewACMEAccount(from *ct.ACMEAccount) *ACMEAccount {
+	return &ACMEAccount{
+		Name:                 path.Join("acme-account", from.ID.String()),
+		DirectoryUrl:         from.DirectoryURL,
+		Contacts:             from.Contacts,
+		TermsOfServiceAgreed: from.TermsOfServiceAgreed,
+	}
+}
+
+func (a *ACMEAccount) ControllerType() *ct.ACMEAccount {
+	account := &ct.ACMEAccount{
+		DirectoryURL:         a.DirectoryUrl,
+		Contacts:             a.Contacts,
+		TermsOfServiceAgreed: a.TermsOfServiceAgreed,
+	}
+	if a.Name != "" {
+		account.ID, _ = router.NewID(strings.TrimPrefix(a.Name, "acme-account/"))
+	}
+	return account
+}
+
+func NewGetACMEAccountKeyRequest(accountID router.ID) *GetACMEAccountKeyRequest {
+	return &GetACMEAccountKeyRequest{
+		Name: path.Join("acme-account", accountID.String()),
+	}
+}

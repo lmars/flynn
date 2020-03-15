@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/flynn/flynn/router/acme"
-	"github.com/inconshreveable/log15"
 )
 
 type GenACMEAccountAction struct {
@@ -37,8 +36,8 @@ func (a *GenACMEAccountAction) Run(s *State) error {
 	data.TermsOfServiceAgreed = interpolate(s, data.TermsOfServiceAgreed)
 
 	// construct an ACME account
-	account := &acme.Account{
-		Key: data.Key,
+	account := &ct.ACMEAccount{
+		DirectoryURL: data.DirectoryURL,
 	}
 	if len(data.Contacts) > 0 {
 		account.Contacts = strings.Split(data.Contacts, ",")
@@ -47,26 +46,26 @@ func (a *GenACMEAccountAction) Run(s *State) error {
 		account.TermsOfServiceAgreed = v
 	}
 
-	// initialize ACME
-	acme, err := acme.New(data.DirectoryURL, log15.New())
-	if err != nil {
-		return err
-	}
-
-	// if the account already has a key, check that it exists
-	if account.Key != "" {
-		if err := acme.CheckExistingAccount(account); err != nil {
-			return fmt.Errorf("error checking exiting ACME account: %s", err)
+	// if the key is set, check the account exists
+	if data.Key != "" {
+		if err := acme.CheckAccountExists(account, []byte(data.Key)); err != nil {
+			return fmt.Errorf("error checking existing ACME account: %s", err)
 		}
 		return nil
 	}
 
-	// create the account and add the key to the step data so it can be
-	// referenced by other steps
-	if err := acme.CreateAccount(account); err != nil {
+	// create the account
+	key, err := acme.CreateAccount(account)
+	if err != nil {
+		return err
+	}
+	client, err := s.ControllerClient()
+	if err != nil {
+		return err
+	}
+	if err := client.CreateACMEAccount(account, key); err != nil {
 		return fmt.Errorf("error creating ACME account: %s", err)
 	}
-	data.Key = account.Key
 
 	return nil
 }

@@ -17,7 +17,9 @@ import (
 	hh "github.com/flynn/flynn/pkg/httphelper"
 	"github.com/flynn/flynn/pkg/postgres"
 	"github.com/flynn/flynn/pkg/typeconv"
+	"github.com/flynn/flynn/router/acme"
 	router "github.com/flynn/flynn/router/types"
+	"github.com/flynn/que-go"
 	"github.com/jackc/pgx"
 	cjson "github.com/tent/canonical-json-go"
 )
@@ -26,10 +28,12 @@ var ErrRouteNotFound = errors.New("controller: route not found")
 
 type RouteRepo struct {
 	db *postgres.DB
+	q  *que.Client
 }
 
 func NewRouteRepo(db *postgres.DB) *RouteRepo {
-	return &RouteRepo{db: db}
+	q := que.NewClient(db.ConnPool)
+	return &RouteRepo{db: db, q: q}
 }
 
 // Set takes the desired list of routes for a set of apps, calculates the
@@ -441,7 +445,7 @@ func scanManagedCertificate(s postgres.Scanner) (*ct.ManagedCertificate, error) 
 
 func (r *RouteRepo) addManagedCert(tx *postgres.DBTx, cert *router.ManagedCertificate) error {
 	// explicitly check if the managed certificate already exists rather than
-	// using an UPSERT query to avoid duplicate events
+	// using an UPSERT query to avoid duplicate events and issuance jobs
 	_, err := scanManagedCertificate(tx.QueryRow("managed_certificate_select", cert.ID().Bytes()))
 	if err == nil {
 		return nil
@@ -463,10 +467,44 @@ func (r *RouteRepo) addManagedCert(tx *postgres.DBTx, cert *router.ManagedCertif
 	); err != nil {
 		return err
 	}
-	return CreateEvent(tx.Exec, &ct.Event{
+	if err := CreateEvent(tx.Exec, &ct.Event{
 		ObjectID:   managedCert.ID().String(),
 		ObjectType: ct.EventTypeManagedCertificate,
-	}, managedCert)
+	}, managedCert); err != nil {
+		return err
+	}
+	job, err := acme.NewIssueCertificateJob(managedCert)
+	if err != nil {
+		return err
+	}
+	return r.q.EnqueueInTx(job, tx.Tx)
+}
+
+func (r *RouteRepo) CreateACMEAccount(account *ct.ACMEAccount, keyDER []byte) error {
+	key, err := router.NewKey(keyDER)
+	if err != nil {
+		return err
+	}
+	account.ID = key.ID
+	return r.db.QueryRow(
+		"acme_account_insert",
+		account.ID.Bytes(),
+		account.DirectoryURL,
+		keyDER,
+		account.Contacts,
+		account.TermsOfServiceAgreed,
+	).Scan(&account.CreatedAt)
+}
+
+func (r *RouteRepo) GetACMEAccountKey(id router.ID) ([]byte, error) {
+	var keyDER []byte
+	if err := r.db.QueryRow(
+		"acme_account_select_key",
+		id.Bytes(),
+	).Scan(&keyDER); err != nil {
+		return nil, err
+	}
+	return keyDER, nil
 }
 
 func (r *RouteRepo) addKey(tx dbOrTx, keyDER []byte) (*router.Key, error) {

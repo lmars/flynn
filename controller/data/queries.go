@@ -125,6 +125,8 @@ var preparedStatements = map[string]string{
 	"managed_certificate_select":                managedCertificateSelectQuery,
 	"managed_certificate_insert":                managedCertificateInsertQuery,
 	"managed_certificate_update":                managedCertificateUpdateQuery,
+	"acme_account_insert":                       acmeAccountInsertQuery,
+	"acme_account_select_key":                   acmeAccountSelectKeyQuery,
 }
 
 func PrepareStatements(conn *pgx.Conn) error {
@@ -745,4 +747,10 @@ RETURNING created_at, updated_at`
 UPDATE managed_certificates SET certificate_id = $1, status = $2, errors = $3
 WHERE id = $4 AND deleted_at IS NULL
 RETURNING created_at, updated_at`
+	acmeAccountInsertQuery = `
+INSERT INTO acme_accounts (id, directory_url, key, contacts, terms_of_service_agreed)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING created_at`
+	acmeAccountSelectKeyQuery = `
+SELECT key FROM acme_accounts WHERE id = $1 AND deleted_at IS NULL`
 )

@@ -973,21 +973,32 @@ DROP TRIGGER set_tcp_route_port ON tcp_routes;
 	migrations.Add(53, `
 ALTER TABLE certificates RENAME TO static_certificates;
 
+CREATE TABLE acme_accounts (
+  id                      bytea       PRIMARY KEY,
+  directory_url           text        NOT NULL DEFAULT '',
+  key                     bytea       NOT NULL,
+  contacts                text[],
+  terms_of_service_agreed boolean     NOT NULL DEFAULT false,
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  deleted_at              timestamptz
+);
+
 CREATE TABLE managed_certificate_statuses (
   name text PRIMARY KEY
 );
 INSERT INTO managed_certificate_statuses (name) VALUES ('pending'), ('issued'), ('failed');
 
 CREATE TABLE managed_certificates (
-  id             bytea       PRIMARY KEY,
-  config         jsonb       NOT NULL DEFAULT '{}'::jsonb,
-  certificate_id bytea       REFERENCES static_certificates (id),
-  status         text        NOT NULL REFERENCES managed_certificate_statuses (name),
-  errors         jsonb       NOT NULL DEFAULT '[]'::jsonb,
-  order_url      text        NOT NULL DEFAULT '',
-  created_at     timestamptz NOT NULL DEFAULT now(),
-  updated_at     timestamptz NOT NULL DEFAULT now(),
-  deleted_at     timestamptz
+  id              bytea       PRIMARY KEY,
+  config          jsonb       NOT NULL DEFAULT '{}'::jsonb,
+  acme_account_id bytea       NOT NULL REFERENCES acme_accounts (id),
+  certificate_id  bytea       REFERENCES static_certificates (id),
+  status          text        NOT NULL REFERENCES managed_certificate_statuses (name),
+  errors          jsonb       NOT NULL DEFAULT '[]'::jsonb,
+  order_url       text        NOT NULL DEFAULT '',
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  deleted_at      timestamptz
 );
 
 ALTER TABLE http_routes ADD COLUMN managed_certificate_id bytea REFERENCES managed_certificates (id);
