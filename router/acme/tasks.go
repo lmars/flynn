@@ -16,14 +16,27 @@ import (
 	"github.com/flynn/flynn/pkg/attempt"
 	router "github.com/flynn/flynn/router/types"
 	"github.com/flynn/que-go"
+	"github.com/google/martian/log"
 	"github.com/inconshreveable/log15"
 )
 
 const (
+	OrderCertificateTaskName = "acme.order_certificate"
 	IssueCertificateTaskName = "acme.issue_certificate"
 
 	responderPort = 8080
 )
+
+func NewOrderCertificateJob(cert *ct.ManagedCertificate) (*que.Job, error) {
+	data, err := json.Marshal(cert)
+	if err != nil {
+		return nil, err
+	}
+	return &que.Job{
+		Type: OrderCertificateTaskName,
+		Args: data,
+	}, nil
+}
 
 func NewIssueCertificateJob(cert *ct.ManagedCertificate) (*que.Job, error) {
 	data, err := json.Marshal(cert)
@@ -37,23 +50,41 @@ func NewIssueCertificateJob(cert *ct.ManagedCertificate) (*que.Job, error) {
 }
 
 func RegisterJobHandlers(handlers que.WorkMap, client ControllerClient, log log15.Logger) {
-	handlers[IssueCertificateTaskName] = func(job *que.Job) error {
-		return RunIssueCertificateJob(job, client, log)
+	handlers[IssueCertificateTaskName] = JobHandler(client, log, IssueCertificate)
+	handlers[OrderCertificateTaskName] = JobHandler(client, log, OrderCertificate)
+}
+
+func JobHandler(controller ControllerClient, log log15.Logger, runFunc runFunc) que.WorkFunc {
+	return func(job *que.Job) error {
+		ctx, err := NewTaskContext(job, controller, log)
+		if err != nil {
+			return err
+		}
+		return runFunc(ctx)
 	}
 }
 
-func RunIssueCertificateJob(job *que.Job, controller ControllerClient, log log15.Logger) error {
+type runFunc func(ctx *TaskContext) error
+
+type TaskContext struct {
+	cert       *ct.ManagedCertificate
+	client     *acme.Client
+	account    acme.Account
+	controller ControllerClient
+}
+
+func NewTaskContext(job *que.Job, controller ControllerClient, log log15.Logger) (*TaskContext, error) {
 	log = log.New("job.id", job.ID)
 
 	log.Info("decoding managed certificate")
 	var cert ct.ManagedCertificate
 	if err := json.Unmarshal(job.Args, &cert); err != nil {
 		log.Error("error decoding managed certificate", "err", err)
-		return err
+		return nil, err
 	}
 
 	log.Info(
-		"starting issue certificate task",
+		"initializing task",
 		"cert.id", cert.ID().String(),
 		"cert.domain", cert.Domain(),
 		"cert.account.id", cert.Account.ID,
@@ -64,57 +95,49 @@ func RunIssueCertificateJob(job *que.Job, controller ControllerClient, log log15
 	client, err := newClient(&cert.Account)
 	if err != nil {
 		log.Error("error initializing ACME client", "err", err)
-		return fmt.Errorf("error initializing ACME client: %s", err)
+		return nil, fmt.Errorf("error initializing ACME client: %s", err)
 	}
 
 	log.Info("loading ACME account", "id", cert.Account.ID)
 	keyDER, err := controller.GetACMEAccountKey(cert.Account.ID)
 	if err != nil {
 		log.Error("error loading ACME account", "id", cert.Account.ID, "err", err)
-		return fmt.Errorf("error loading ACME account %q: %s", cert.Account.ID, err)
+		return nil, fmt.Errorf("error loading ACME account %q: %s", cert.Account.ID, err)
 	}
 	privKey, err := x509.ParseECPrivateKey(keyDER)
 	if err != nil {
 		log.Error("error loading ACME account", "id", cert.Account.ID, "err", err)
-		return fmt.Errorf("error loading ACME account %q: %s", cert.Account.ID, err)
+		return nil, fmt.Errorf("error loading ACME account %q: %s", cert.Account.ID, err)
 	}
 	account, err := client.NewAccount(privKey, true, cert.Account.TermsOfServiceAgreed, cert.Account.Contacts...)
 	if err != nil {
 		log.Error("error loading ACME account", "id", cert.Account.ID, "err", err)
-		return fmt.Errorf("error loading ACME account %q: %s", cert.Account.ID, err)
+		return nil, fmt.Errorf("error loading ACME account %q: %s", cert.Account.ID, err)
 	}
 
-	log.Info("initializing responder")
+	return &TaskContext{
+		cert:       &cert,
+		client:     client,
+		account:    account,
+		controller: controller,
+		log:        log.New("domain", cert.Domain()),
+	}, nil
+
+}
+
+func OrderCertificate(ctx *TaskContext) error {
+	return nil
+}
+
+func IssueCertificate(ctx *TaskContext) error {
+	ctx.log.Info("initializing responder")
+
 	responder, err := NewResponder(controller, discoverd.DefaultClient, fmt.Sprintf(":%d", defaultResponderPort), log)
 	if err != nil {
 		log.Error("error initializing responder", "err", err)
 		return fmt.Errorf("error initializing responder: %s", err)
 	}
 
-	task := &issueCertificateTask{
-		cert:       &cert,
-		client:     client,
-		account:    account,
-		controller: controller,
-		responder:  responder,
-		log:        log.New("domain", cert.Domain()),
-	}
-	return task.Run()
-}
-
-type issueCertificateTask struct {
-	cert       *ct.ManagedCertificate
-	client     *acme.Client
-	account    acme.Account
-	controller ControllerClient
-	responder  *Responder
-	log        log15.Logger
-}
-
-// Run runs the task by placing an ACME order, satisfying authz challenges,
-// fetching issued certificates and passing them to the controller to update
-// the associated routes
-func (t *issueCertificateTask) Run() error {
 	t.log.Info("running issue certificate task")
 
 	// make sure we have an order

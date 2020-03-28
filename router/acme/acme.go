@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"fmt"
+	"time"
 
 	acme "github.com/eggsampler/acme/v3"
 	ct "github.com/flynn/flynn/controller/types"
@@ -28,6 +29,59 @@ type ControllerClient interface {
 	CreateRoute(appID string, route *router.Route) error
 
 	DeleteRoute(appID string, routeID string) error
+}
+
+type Account struct {
+	ID                   router.ID  `json:"id,omitempty"`
+	DirectoryURL         string     `json:"directory_url,omitempty"`
+	Contacts             []string   `json:"contacts,omitempty"`
+	TermsOfServiceAgreed bool       `json:"terms_of_service_agreed,omitempty"`
+	CreatedAt            *time.Time `json:"created_at,omitempty"`
+}
+
+type OrderStatus string
+
+const (
+	OrderStatusPending    OrderStatus = "pending"
+	OrderStatusReady      OrderStatus = "ready"
+	OrderStatusProcessing OrderStatus = "processing"
+	OrderStatusValid      OrderStatus = "valid"
+	OrderStatusInvalid    OrderStatus = "invalid"
+)
+
+type Order struct {
+	URL            string           `json:"url,omitempty"`
+	Status         OrderStatus      `json:"status,omitempty"`
+	ExpiresAt      *time.Time       `json:"expires_at,omitempty"`
+	Authorizations []*Authorization `json:"authorizations,omitempty"`
+	FinalizeURL    string           `json:"finalize_url,omitempty"`
+	CertificateURL string           `json:"certificate_url,omitempty"`
+}
+
+type AuthorizationStatus string
+
+const (
+	AuthorizationStatusPending     AuthorizationStatus = "pending"
+	AuthorizationStatusValid       AuthorizationStatus = "valid"
+	AuthorizationStatusInvalid     AuthorizationStatus = "invalid"
+	AuthorizationStatusDeactivated AuthorizationStatus = "deactivated"
+	AuthorizationStatusExpired     AuthorizationStatus = "expired"
+	AuthorizationStatusRevoked     AuthorizationStatus = "revoked"
+)
+
+type Authorization struct {
+	URL        string              `json:"url,omitempty"`
+	Status     AuthorizationStatus `json:"status,omitempty"`
+	Challenges []*Challenge        `json:"challenges,omitempty"`
+	ExpiresAt  *time.Time          `json:"expires_at,omitempty"`
+}
+
+type Challenge struct {
+	Type             string          `json:"type,omitempty"`
+	URL              string          `json:"url,omitempty"`
+	Status           ChallengeStatus `json:"challenge_status,omitempty"`
+	Token            string          `json:"token,omitempty"`
+	KeyAuthorization string          `json:"key_authorization,omitempty"`
 }
 
 // CheckAccountExists checks that the given ACME account exists

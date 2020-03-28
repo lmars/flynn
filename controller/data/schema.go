@@ -983,6 +983,19 @@ CREATE TABLE acme_accounts (
   deleted_at              timestamptz
 );
 
+CREATE TABLE acme_order_statuses (
+  name text PRIMARY KEY
+);
+INSERT INTO acme_order_statuses (name) VALUES ('pending'), ('ready'), ('processing'), ('valid'), ('invalid');
+
+CREATE TABLE acme_orders (
+  url        text PRIMARY KEY,
+  status     text NOT NULL REFERENCES acme_order_statuses (name) DEFAULT 'pending',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  deleted_at timestamptz
+);
+
 CREATE TABLE managed_certificate_statuses (
   name text PRIMARY KEY
 );
@@ -993,9 +1006,9 @@ CREATE TABLE managed_certificates (
   config          jsonb       NOT NULL DEFAULT '{}'::jsonb,
   acme_account_id bytea       NOT NULL REFERENCES acme_accounts (id),
   certificate_id  bytea       REFERENCES static_certificates (id),
+  order           jsonb       NOT NULL DEFAULT '{}'::jsonb,
   status          text        NOT NULL REFERENCES managed_certificate_statuses (name),
   errors          jsonb       NOT NULL DEFAULT '[]'::jsonb,
-  order_url       text        NOT NULL DEFAULT '',
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
   deleted_at      timestamptz

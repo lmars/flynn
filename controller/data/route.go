@@ -473,7 +473,7 @@ func (r *RouteRepo) addManagedCert(tx *postgres.DBTx, cert *router.ManagedCertif
 	}, managedCert); err != nil {
 		return err
 	}
-	job, err := acme.NewIssueCertificateJob(managedCert)
+	job, err := acme.NewOrderCertificateJob(managedCert)
 	if err != nil {
 		return err
 	}

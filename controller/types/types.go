@@ -15,6 +15,7 @@ import (
 	host "github.com/flynn/flynn/host/types"
 	"github.com/flynn/flynn/host/volume"
 	"github.com/flynn/flynn/pkg/tlscert"
+	"github.com/flynn/flynn/router/acme"
 	router "github.com/flynn/flynn/router/types"
 	"github.com/jtacoma/uritemplates"
 	cjson "github.com/tent/canonical-json-go"
@@ -803,7 +804,8 @@ const (
 
 type ManagedCertificate struct {
 	Config      *router.ManagedCertificate `json:"config,omitempty"`
-	Account     ACMEAccount                `json:"account,omitempty"`
+	Account     acme.Account               `json:"account,omitempty"`
+	Order       acme.Order                 `json:"order,omitempty"`
 	OrderURL    string                     `json:"order_url,omitempty"`
 	Status      ManagedCertificateStatus   `json:"status,omitempty"`
 	Errors      []*ManagedCertificateError `json:"errors,omitempty"`
